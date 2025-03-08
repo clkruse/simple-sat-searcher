@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Point Labeling Tool</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Full-screen map container -->
+    <div id="map"></div>
+    
+    <!-- Sidebar navigation -->
+    <div class="sidebar">
+        <!-- <div class="logo" title="Map Point Labeling Tool">
+            <i class="fas fa-map-marker-alt"></i>
+        </div> -->
+        <div class="sidebar-item active" id="project-selector-btn" title="Projects">
+            <i class="fas fa-folder"></i>
+        </div>
+        <div class="sidebar-item" id="point-tool-btn" title="Label Points">
+            <i class="fas fa-crosshairs"></i>
+        </div>
+        <div class="sidebar-item" id="clear-btn" title="Clear Points">
+            <i class="fas fa-trash"></i>
+        </div>
+        <div class="sidebar-item" id="extract-data-btn" title="Extract Data">
+            <i class="fas fa-satellite"></i>
+        </div>
+        <div class="sidebar-item" id="visualize-data-btn" title="Visualize Data">
+            <i class="fas fa-image"></i>
+        </div>
+        
+        <div class="sidebar-item" id="map-imagery-btn" title="Load Map Imagery">
+            <i class="fas fa-globe"></i>
+        </div>
+        <button id="train-model-btn" class="sidebar-item" title="Train Model">
+            <i class="fas fa-brain"></i>
+            <span>Train Model</span>
+        </button>
+        <button id="deploy-model-btn" class="sidebar-item" title="Deploy Model">
+            <i class="fas fa-rocket"></i>
+            <span>Deploy Model</span>
+        </button>
+    </div>
+    
+    <!-- Standardized panel structure for all panels -->
+    
+    <!-- Control panel -->
+    <div class="panel" id="control-panel">
+        <div class="panel-header">
+            <span id="project-name">No Project Selected</span>
+            <div class="header-controls">
+                <span class="point-stats">
+                    <span id="positive-count">0</span>+ / <span id="negative-count">0</span>-
+                </span>
+                <button class="close-btn" id="close-control-panel"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+        <div class="panel-body">
+            <div class="radio-container">
+                <div class="radio-option">
+                    <input type="radio" id="positive" name="point-class" value="positive" checked>
+                    <label for="positive">Positive</label>
+                </div>
+                <div class="radio-option">
+                    <input type="radio" id="negative" name="point-class" value="negative">
+                    <label for="negative">Negative</label>
+                </div>
+            </div>
+            
+            <div class="form-group" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+                <button id="export-points-btn" class="primary-btn">
+                    <i class="fas fa-file-export"></i> Export Points
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Extract data panel -->
+    <div class="panel" id="extract-panel">
+        <div class="panel-header">
+            <span>Extract Satellite Data</span>
+            <div class="header-controls">
+                <button class="close-btn" id="close-extract-panel"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+        <div class="panel-body">
+            <form id="extract-form">
+                <div class="form-group">
+                    <label for="collection-select">Satellite Collection</label>
+                    <select id="collection-select">
+                        <option value="S2">Sentinel-2</option>
+                        <option value="S1">Sentinel-1</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="start-date">Start Date</label>
+                    <input type="date" id="start-date" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="end-date">End Date</label>
+                    <input type="date" id="end-date" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="chip-size">Chip Size (pixels)</label>
+                    <select id="chip-size">
+                        <option value="32">32×32</option>
+                        <option value="64" selected>64×64</option>
+                        <option value="128">128×128</option>
+                        <option value="256">256×256</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="clear-threshold">Clear Threshold (S2 only)</label>
+                    <div class="range-container">
+                        <input type="range" id="clear-threshold" min="0" max="1" step="0.05" value="0.75">
+                        <span id="threshold-value">0.75</span>
+                    </div>
+                </div>
+                
+                <div id="extraction-progress-container" class="progress-container">
+                    <div class="progress-bar">
+                        <div id="extraction-progress" class="progress-fill"></div>
+                    </div>
+                    <div id="extraction-progress-text" class="progress-text">Ready to extract</div>
+                </div>
+                
+                <button type="button" id="extract-btn" class="primary-btn">
+                    <i class="fas fa-satellite"></i> Extract Data
+                </button>
+            </form>
+            
+            <div id="extraction-results" class="hidden">
+                <h3>Previous Extractions</h3>
+                <div id="extractions-list" class="extractions-list">
+                    <!-- Extractions will be loaded here -->
+                    <div class="loading">Loading extractions...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Visualization panel -->
+    <div class="panel" id="visualization-panel">
+        <div class="panel-header">
+            <span>Visualize Satellite Data</span>
+            <div class="header-controls">
+                <button class="close-btn" id="close-visualization-panel"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+        <div class="panel-body">
+            <div id="no-extractions" class="hidden">
+                <p>No extractions available for this project. Please extract data first.</p>
+            </div>
+            
+            <div id="visualization-controls">
+                <div class="form-group">
+                    <label for="visualization-extraction">Select Extraction</label>
+                    <select id="visualization-extraction">
+                        <!-- Extractions will be loaded here -->
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="visualization-type">Visualization Type</label>
+                    <select id="visualization-type">
+                        <option value="true_color">True Color (RGB)</option>
+                        <option value="false_color">False Color (NIR)</option>
+                        <option value="ndvi">NDVI</option>
+                    </select>
+                </div>
+                
+                <button id="load-visualization-btn" class="primary-btn">
+                    <i class="fas fa-eye"></i> Load Visualization
+                </button>
+                
+                <button id="clear-visualization-btn" class="secondary-btn hidden">
+                    <i class="fas fa-eye-slash"></i> Clear Visualization
+                </button>
+            </div>
+            
+            <div id="visualization-status" class="hidden">
+                <div class="status-message">Loading visualization...</div>
+                <div class="loading-spinner"></div>
+            </div>
+            
+            <div id="visualization-info" class="hidden">
+                <div class="info-box">
+                    <h4>Visualization Details</h4>
+                    <p><strong>Collection:</strong> <span id="vis-collection"></span></p>
+                    <p><strong>Patches:</strong> <span id="vis-patches"></span></p>
+                    <p><strong>Mode:</strong> <span id="vis-mode"></span></p>
+                </div>
+                <div class="legend-box">
+                    <h4>Legend</h4>
+                    <div id="vis-legend"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Project selection modal -->
+    <div id="project-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Select Project</h2>
+                <button class="close-btn" id="close-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="create-project">
+                    <input type="text" id="new-project-name" placeholder="New Project Name">
+                    <button id="create-project-btn">Create</button>
+                </div>
+                
+                <div class="existing-projects">
+                    <h3>Projects</h3>
+                    <div id="projects-list" class="projects-list">
+                        <!-- Projects will be loaded here -->
+                        <div class="loading">Loading projects...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Training panel -->
+    <div class="panel" id="training-panel">
+        <div class="panel-header">
+            <span>Train Model</span>
+            <div class="header-controls">
+                <button class="close-btn" id="close-training-panel"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+        
+        <div class="panel-body">
+            <div id="no-training-extractions" class="message hidden">
+                No extractions available for training. Please extract data first.
+            </div>
+            
+            <div id="training-controls" class="hidden">
+                <div class="form-group">
+                    <label for="model-name">Model Name</label>
+                    <input type="text" id="model-name" placeholder="Enter a name for your model">
+                </div>
+                
+                <div class="form-group">
+                    <label for="training-extractions">Select Extractions</label>
+                    <select id="training-extractions" multiple>
+                        <option value="">Loading extractions...</option>
+                    </select>
+                    <small>Hold Ctrl/Cmd to select multiple extractions</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="batch-size">Batch Size</label>
+                    <input type="number" id="batch-size" value="32" min="1" max="128">
+                </div>
+                
+                <div class="form-group">
+                    <label for="epochs">Number of Epochs</label>
+                    <input type="number" id="epochs" value="160" min="1" max="1000">
+                </div>
+                
+                <div class="form-group">
+                    <label for="test-split">Test Split</label>
+                    <input type="number" id="test-split" value="0.3" min="0.1" max="0.5" step="0.1">
+                    <small>Percentage of data to use for testing</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="use-augmentation" checked>
+                        Use Data Augmentation
+                    </label>
+                    <small>Apply random transformations to training data</small>
+                </div>
+                
+                <div class="form-group">
+                    <button id="train-btn" class="primary-btn">
+                        <i class="fas fa-play"></i>
+                        Start Training
+                    </button>
+                </div>
+                
+                <div id="training-status" class="hidden">
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div id="training-progress" class="progress-fill"></div>
+                        </div>
+                        <div id="training-progress-text" class="progress-text">Starting training...</div>
+                    </div>
+                    
+                    <div class="accuracy-progress">
+                        <div class="accuracy-container">
+                            <div class="accuracy-label">Training Accuracy:</div>
+                            <div class="accuracy-bar-container">
+                                <div id="training-accuracy-bar" class="accuracy-bar"></div>
+                            </div>
+                            <div id="training-accuracy-value" class="accuracy-value">0%</div>
+                        </div>
+                        <div class="accuracy-container">
+                            <div class="accuracy-label">Validation Accuracy:</div>
+                            <div class="accuracy-bar-container">
+                                <div id="validation-accuracy-bar" class="accuracy-bar"></div>
+                            </div>
+                            <div id="validation-accuracy-value" class="accuracy-value">0%</div>
+                        </div>
+                    </div>
+                    
+                    <div id="training-metrics" class="metrics-grid">
+                        <!-- Metrics will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+            
+            <div id="models-results" class="hidden">
+                <h3>Trained Models</h3>
+                <div id="models-list" class="models-grid">
+                    <!-- Models will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Deployment panel -->
+    <div class="panel" id="deployment-panel">
+        <div class="panel-header">
+            <span>Deploy Model</span>
+            <div class="header-controls">
+                <button class="close-btn" id="close-deployment-panel"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+        
+        <div class="panel-body">
+            <div id="no-trained-models" class="message hidden">
+                No trained models available. Please train a model first.
+            </div>
+            
+            <div id="deployment-controls" class="hidden">
+                <div class="form-group">
+                    <label for="deployment-model">Select Model</label>
+                    <select id="deployment-model">
+                        <option value="">Loading models...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="deployment-dates">Date Range</label>
+                    <div class="date-range">
+                        <input type="date" id="deployment-start-date">
+                        <span>to</span>
+                        <input type="date" id="deployment-end-date">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="pred-threshold">Prediction Threshold</label>
+                    <input type="number" id="pred-threshold" value="0.5" min="0" max="1" step="0.1">
+                    <small>Minimum confidence score to consider a prediction positive</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="clear-threshold">Clear Sky Threshold</label>
+                    <input type="number" id="clear-threshold" value="0.75" min="0" max="1" step="0.1">
+                    <small>Minimum cloud-free fraction to process a tile</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="tile-size">Tile Size</label>
+                    <input type="number" id="tile-size" value="576" min="64" max="1024" step="64">
+                    <small>Size of each tile in pixels</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="tile-padding">Tile Padding</label>
+                    <input type="number" id="tile-padding" value="24" min="0" max="64" step="8">
+                    <small>Number of pixels to pad each tile</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="batch-size">Batch Size</label>
+                    <input type="number" id="batch-size" value="500" min="100" max="1000" step="100">
+                    <small>Number of tiles to process between writes</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="tries">Number of Tries</label>
+                    <input type="number" id="tries" value="2" min="1" max="5">
+                    <small>Number of times to try tiles in case of errors</small>
+                </div>
+                
+                <div class="form-group">
+                    <button id="deploy-btn" class="primary-btn">
+                        <i class="fas fa-play"></i>
+                        Start Deployment
+                    </button>
+                </div>
+                
+                <div id="deployment-status" class="progress-container hidden">
+                    <div class="progress-bar">
+                        <div id="deployment-progress" class="progress-fill"></div>
+                    </div>
+                    <div id="deployment-progress-text" class="progress-text">Starting deployment...</div>
+                    <div id="deployment-details" class="details-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Map Imagery Panel -->
+    <div class="panel" id="map-imagery-panel">
+        <div class="panel-header">
+            <span>Load Map Imagery</span>
+            <div class="header-controls">
+                <button class="close-btn" id="close-map-imagery-panel"><i class="fas fa-times"></i></button>
+            </div>
+        </div>
+        <div class="panel-body">
+            <form id="map-imagery-form">
+                <div class="form-group">
+                    <label for="imagery-collection">Satellite Collection</label>
+                    <select id="imagery-collection">
+                        <option value="S2">Sentinel-2</option>
+                        <option value="S1">Sentinel-1</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="imagery-start-date">Start Date</label>
+                    <input type="date" id="imagery-start-date" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="imagery-end-date">End Date</label>
+                    <input type="date" id="imagery-end-date" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="imagery-clear-threshold">Clear Threshold (S2 only)</label>
+                    <div class="range-container">
+                        <input type="range" id="imagery-clear-threshold" min="0" max="1" step="0.05" value="0.75">
+                        <span id="imagery-threshold-value">0.75</span>
+                    </div>
+                </div>
+                
+                <div class="button-group">
+                    <button type="submit" class="primary-btn">Load Imagery</button>
+                    <button type="button" class="secondary-btn" id="remove-imagery-btn">Remove Imagery</button>
+                </div>
+                
+                <div id="imagery-status" class="status-message" style="display: none;">
+                    <div class="spinner"></div>
+                    <span>Loading imagery...</span>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
