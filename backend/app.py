@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from tensorflow import keras
 import multiprocessing
+import pandas as pd
+import traceback
 
 
 # Import GEE Data Extractor and Model Deployer
@@ -69,29 +71,40 @@ def list_projects():
                 created = datetime.datetime.fromtimestamp(os.path.getctime(project_dir)).strftime('%Y-%m-%d %H:%M:%S')
                 modified = datetime.datetime.fromtimestamp(os.path.getmtime(project_dir)).strftime('%Y-%m-%d %H:%M:%S')
                 
-                # Count GeoJSON files and their points
-                geojson_files = [f for f in os.listdir(project_dir) if f.endswith('.geojson')]
-                total_files = len(geojson_files)
-                
-                # Get the latest export if any
-                latest_export = None
-                latest_export_time = None
+                # Check for master points file first
+                master_points_file = os.path.join(project_dir, 'points.geojson')
                 total_points = 0
+                latest_export = 'points.geojson'  # Default to master file
                 
-                for gj_file in geojson_files:
-                    file_path = os.path.join(project_dir, gj_file)
-                    file_time = os.path.getmtime(file_path)
-                    
-                    if latest_export_time is None or file_time > latest_export_time:
-                        latest_export = gj_file
-                        latest_export_time = file_time
-                    
+                if os.path.exists(master_points_file):
                     try:
-                        # Count points in each file
-                        gdf = gpd.read_file(file_path)
-                        total_points += len(gdf)
+                        # Count points in master file
+                        gdf = gpd.read_file(master_points_file)
+                        total_points = len(gdf)
                     except Exception as e:
-                        print(f"Error reading {gj_file}: {str(e)}")
+                        print(f"Error reading master points file: {str(e)}")
+                else:
+                    # Fall back to legacy files if no master file
+                    geojson_files = [f for f in os.listdir(project_dir) if f.endswith('.geojson')]
+                    
+                    # Get the latest export if any
+                    latest_export = None
+                    latest_export_time = None
+                    
+                    for gj_file in geojson_files:
+                        file_path = os.path.join(project_dir, gj_file)
+                        file_time = os.path.getmtime(file_path)
+                        
+                        if latest_export_time is None or file_time > latest_export_time:
+                            latest_export = gj_file
+                            latest_export_time = file_time
+                        
+                        try:
+                            # Count points in each file
+                            gdf = gpd.read_file(file_path)
+                            total_points += len(gdf)
+                        except Exception as e:
+                            print(f"Error reading {gj_file}: {str(e)}")
                 
                 # Check for extracted data
                 extracted_dir = os.path.join(project_dir, "extracted_data")
@@ -106,7 +119,6 @@ def list_projects():
                     'name': item,
                     'created': created,
                     'modified': modified,
-                    'total_files': total_files,
                     'total_points': total_points,
                     'latest_export': latest_export,
                     'has_extracted_data': has_extracted_data,
@@ -195,6 +207,8 @@ def export_points():
         geojson = data.get('geojson', {})
         project_id = data.get('project_id', '')
         
+        print(f"Exporting points for project: {project_id}")
+        
         if not project_id:
             return jsonify({"success": False, "message": "Project ID is required"}), 400
             
@@ -206,22 +220,61 @@ def export_points():
         if not geojson or 'features' not in geojson or not geojson['features']:
             return jsonify({"success": False, "message": "No valid GeoJSON features provided"})
         
-        # Generate a timestamp for the filename
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"points_{timestamp}.geojson"
-        filepath = os.path.join(project_dir, filename)
-        
-        # Convert to GeoDataFrame and save as GeoJSON
+        # Log the received features
         features = geojson['features']
+        print(f"Received {len(features)} features")
         
-        # Create a GeoDataFrame from the features
-        gdf = gpd.GeoDataFrame.from_features(features)
+        # Set the output file to a consistent name instead of timestamped names
+        master_points_file = os.path.join(project_dir, "points.geojson")
+        
+        # Extract new point IDs
+        new_ids = set()
+        for feature in features:
+            if 'properties' in feature and 'id' in feature['properties']:
+                new_ids.add(str(feature['properties']['id']))
+        
+        # Check if we need to clean up extracted data
+        if os.path.exists(master_points_file):
+            try:
+                # Read the old GeoJSON file directly
+                with open(master_points_file, 'r') as f:
+                    old_geojson = json.load(f)
+                
+                old_features = old_geojson.get('features', [])
+                print(f"Old features: {len(old_features)}, New features: {len(features)}")
+                
+                # Extract old point IDs
+                old_ids = set()
+                for feature in old_features:
+                    if 'properties' in feature and 'id' in feature['properties']:
+                        old_ids.add(str(feature['properties']['id']))
+                
+                # Find removed points
+                if len(old_features) > len(features):
+                    removed_ids = old_ids - new_ids
+                    
+                    if removed_ids:
+                        print(f"Found {len(removed_ids)} removed points: {removed_ids}")
+                        # Clean up extracted data for removed points
+                        cleanup_extracted_data(project_id, removed_ids)
+                    else:
+                        print("No points were removed (IDs don't match)")
+                else:
+                    print("No points were removed (count check)")
+            except Exception as e:
+                print(f"Error checking for removed points: {str(e)}")
+                print(f"Traceback: {traceback.format_exc()}")
+        
+        # Convert to GeoDataFrame 
+        new_features = geojson['features']
+        new_gdf = gpd.GeoDataFrame.from_features(new_features)
         
         # Ensure we have the right CRS (WGS84)
-        gdf.crs = "EPSG:4326"
+        new_gdf.crs = "EPSG:4326"
         
-        # Save to file
-        gdf.to_file(filepath, driver="GeoJSON")
+        # Save the new points directly (replacing any existing file)
+        new_gdf.to_file(master_points_file, driver="GeoJSON")
+        gdf = new_gdf
         
         point_counts = {
             'positive': len(gdf[gdf['class'] == 'positive']),
@@ -229,21 +282,161 @@ def export_points():
             'total': len(gdf)
         }
         
-        print(f"Exported {point_counts['total']} points to {filepath}")
+        print(f"Updated master points file with {len(new_gdf)} points, total: {point_counts['total']}")
         print(f"  - Positive: {point_counts['positive']}")
         print(f"  - Negative: {point_counts['negative']}")
         
         # Return success response
         return jsonify({
             "success": True,
-            "message": f"Exported {point_counts['total']} points to {filename}",
-            "filename": filename,
+            "message": f"Saved {point_counts['total']} points to master file",
+            "filename": "points.geojson",
             "counts": point_counts
         })
         
     except Exception as e:
         print(f"Error exporting points: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+def cleanup_extracted_data(project_id, removed_point_ids):
+    """
+    Clean up extracted data for removed points
+    
+    Args:
+        project_id (str): Project ID
+        removed_point_ids (set): Set of point IDs that were removed
+    """
+    try:
+        # Get the project directory
+        project_dir = os.path.join(PROJECTS_DIR, project_id)
+        extracted_dir = os.path.join(project_dir, "extracted_data")
+        
+        print(f"Cleaning up extracted data for project {project_id}")
+        print(f"Removed point IDs: {removed_point_ids}")
+        
+        # Convert all removed_point_ids to strings to ensure consistent comparison
+        removed_point_ids = {str(pid) for pid in removed_point_ids}
+        
+        if not os.path.exists(extracted_dir):
+            print(f"No extracted_data directory found at {extracted_dir}")
+            return
+        
+        # Get all netCDF files
+        nc_files = [f for f in os.listdir(extracted_dir) if f.endswith('.nc')]
+        print(f"Found {len(nc_files)} netCDF files to check")
+        
+        for nc_file in nc_files:
+            file_path = os.path.join(extracted_dir, nc_file)
+            print(f"Processing file: {nc_file}")
+            
+            try:
+                # Open the netCDF file
+                with xr.open_dataset(file_path) as ds:
+                    # Check if the dataset has point IDs
+                    if 'point_id' in ds:
+                        # Get point IDs as strings
+                        point_ids = [str(pid) for pid in ds.point_id.values]
+                        
+                        # Find indices of points to keep
+                        keep_indices = [i for i, pid in enumerate(point_ids) if pid not in removed_point_ids]
+                        removed_indices = [i for i, pid in enumerate(point_ids) if pid in removed_point_ids]
+                        
+                        print(f"Points to keep: {len(keep_indices)}, Points to remove: {len(removed_indices)}")
+                        if removed_indices:
+                            print(f"Removing point indices: {removed_indices}")
+                            print(f"Removing point IDs: {[point_ids[i] for i in removed_indices]}")
+                        
+                        if len(keep_indices) < len(point_ids):
+                            # Create a new dataset without the removed points
+                            print(f"Creating new dataset with {len(keep_indices)} points")
+                            new_ds = ds.isel(point=keep_indices)
+                            
+                            # Save to a temporary file
+                            temp_file = file_path + '.temp'
+                            new_ds.to_netcdf(temp_file)
+                            
+                            # Close the dataset
+                            new_ds.close()
+                            
+                            # Replace the original file
+                            os.replace(temp_file, file_path)
+                            
+                            print(f"Successfully removed data for {len(point_ids) - len(keep_indices)} points from {nc_file}")
+                        else:
+                            print(f"No points to remove from {nc_file}")
+                    else:
+                        # If no point_id variable, try to match by coordinates
+                        print(f"No point_id variable found in {nc_file}, trying to match by coordinates")
+                        
+                        # Load the points.geojson file to get coordinates of removed points
+                        points_file = os.path.join(project_dir, "points.geojson")
+                        if os.path.exists(points_file):
+                            try:
+                                # Load the GeoJSON file
+                                with open(points_file, 'r') as f:
+                                    geojson = json.load(f)
+                                
+                                # Get coordinates of all points
+                                all_points = {}
+                                for feature in geojson.get('features', []):
+                                    if 'properties' in feature and 'id' in feature['properties']:
+                                        point_id = str(feature['properties']['id'])
+                                        coords = feature['geometry']['coordinates']
+                                        all_points[point_id] = coords
+                                
+                                # Get coordinates of removed points
+                                removed_coords = [all_points[pid] for pid in removed_point_ids if pid in all_points]
+                                
+                                # Get dataset coordinates
+                                ds_lons = ds.longitude.values
+                                ds_lats = ds.latitude.values
+                                
+                                # Find indices to keep
+                                keep_indices = []
+                                removed_indices = []
+                                for i in range(len(ds_lons)):
+                                    keep = True
+                                    for lon, lat in removed_coords:
+                                        # Check if coordinates match (with small tolerance)
+                                        if (abs(ds_lons[i] - lon) < 1e-6 and 
+                                            abs(ds_lats[i] - lat) < 1e-6):
+                                            keep = False
+                                            removed_indices.append(i)
+                                            break
+                                    if keep:
+                                        keep_indices.append(i)
+                                
+                                print(f"Points to keep: {len(keep_indices)}, Points to remove: {len(removed_indices)}")
+                                
+                                if len(keep_indices) < len(ds_lons):
+                                    # Create a new dataset without the removed points
+                                    print(f"Creating new dataset with {len(keep_indices)} points")
+                                    new_ds = ds.isel(point=keep_indices)
+                                    
+                                    # Save to a temporary file
+                                    temp_file = file_path + '.temp'
+                                    new_ds.to_netcdf(temp_file)
+                                    
+                                    # Close the dataset
+                                    new_ds.close()
+                                    
+                                    # Replace the original file
+                                    os.replace(temp_file, file_path)
+                                    
+                                    print(f"Successfully removed data for {len(ds_lons) - len(keep_indices)} points from {nc_file} using coordinate matching")
+                                else:
+                                    print(f"No points to remove from {nc_file} using coordinate matching")
+                            except Exception as e:
+                                print(f"Error matching by coordinates: {str(e)}")
+                                print(f"Traceback: {traceback.format_exc()}")
+            except Exception as e:
+                print(f"Error processing {nc_file}: {str(e)}")
+                print(f"Traceback: {traceback.format_exc()}")
+    
+    except Exception as e:
+        print(f"Error cleaning up extracted data: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
 
 @app.route('/list_exports', methods=['GET'])
 def list_exports():
@@ -259,48 +452,67 @@ def list_exports():
         if not os.path.exists(project_dir) or not os.path.isdir(project_dir):
             return jsonify({"success": False, "message": f"Project '{project_id}' not found"}), 404
         
-        files = [f for f in os.listdir(project_dir) if f.endswith('.geojson')]
-        files.sort(reverse=True)  # Most recent first
-        
         exports = []
-        for file in files:
-            filepath = os.path.join(project_dir, file)
+        
+        # Check for the master points file
+        master_file = os.path.join(project_dir, 'points.geojson')
+        if os.path.exists(master_file):
             try:
-                gdf = gpd.read_file(filepath)
+                gdf = gpd.read_file(master_file)
                 positive_count = len(gdf[gdf['class'] == 'positive'])
                 negative_count = len(gdf[gdf['class'] == 'negative'])
                 
                 exports.append({
-                    'filename': file,
-                    'created': datetime.datetime.fromtimestamp(os.path.getctime(filepath)).strftime('%Y-%m-%d %H:%M:%S'),
+                    'filename': 'points.geojson',
+                    'created': datetime.datetime.fromtimestamp(os.path.getctime(master_file)).strftime('%Y-%m-%d %H:%M:%S'),
+                    'modified': datetime.datetime.fromtimestamp(os.path.getmtime(master_file)).strftime('%Y-%m-%d %H:%M:%S'),
                     'total_points': len(gdf),
                     'positive_points': positive_count,
                     'negative_points': negative_count
                 })
             except Exception as e:
-                print(f"Error reading {file}: {str(e)}")
-                continue
+                print(f"Error reading master points file: {str(e)}")
+                
+        # For compatibility, also include any other geojson files, but only if master file doesn't exist
+        if not os.path.exists(master_file):
+            legacy_files = [f for f in os.listdir(project_dir) if f.endswith('.geojson') and f != 'points.geojson']
+            legacy_files.sort(reverse=True)  # Most recent first
+            
+            for file in legacy_files:
+                filepath = os.path.join(project_dir, file)
+                try:
+                    gdf = gpd.read_file(filepath)
+                    positive_count = len(gdf[gdf['class'] == 'positive'])
+                    negative_count = len(gdf[gdf['class'] == 'negative'])
+                    
+                    exports.append({
+                        'filename': file,
+                        'created': datetime.datetime.fromtimestamp(os.path.getctime(filepath)).strftime('%Y-%m-%d %H:%M:%S'),
+                        'total_points': len(gdf),
+                        'positive_points': positive_count,
+                        'negative_points': negative_count
+                    })
+                except Exception as e:
+                    print(f"Error reading point file {file}: {str(e)}")
         
         return jsonify({
-            "success": True,
+            "success": True, 
             "exports": exports
         })
         
     except Exception as e:
+        print(f"Error listing exports: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/load_points', methods=['GET'])
 def load_points():
     try:
-        # Get the project id and filename from the query parameters
+        # Get the project id and optional filename from the query parameters
         project_id = request.args.get('project_id', '')
-        filename = request.args.get('filename', '')
+        filename = request.args.get('filename', 'points.geojson')  # Default to master points file
         
         if not project_id:
             return jsonify({"success": False, "message": "Project ID is required"}), 400
-            
-        if not filename:
-            return jsonify({"success": False, "message": "Filename is required"}), 400
         
         # Check if project exists
         project_dir = os.path.join(PROJECTS_DIR, project_id)
@@ -310,7 +522,17 @@ def load_points():
         # Check if file exists
         filepath = os.path.join(project_dir, filename)
         if not os.path.exists(filepath):
-            return jsonify({"success": False, "message": f"File '{filename}' not found in project '{project_id}'"}), 404
+            # If the master file doesn't exist, return an empty GeoJSON
+            if filename == 'points.geojson':
+                return jsonify({
+                    "success": True,
+                    "geojson": {
+                        "type": "FeatureCollection",
+                        "features": []
+                    }
+                })
+            else:
+                return jsonify({"success": False, "message": f"File '{filename}' not found in project '{project_id}'"}), 404
         
         # Read the GeoJSON file
         gdf = gpd.read_file(filepath)
@@ -451,6 +673,8 @@ def list_extracted_data():
         # Get the project id from the query parameters
         project_id = request.args.get('project_id', '')
         
+        print(f"list_extracted_data called for project: {project_id}")
+        
         if not project_id:
             return jsonify({"success": False, "message": "Project ID is required"}), 400
         
@@ -462,13 +686,86 @@ def list_extracted_data():
         # Check if extracted_data directory exists
         extracted_dir = os.path.join(project_dir, "extracted_data")
         if not os.path.exists(extracted_dir):
+            print(f"No extracted_data directory found at {extracted_dir}")
             return jsonify({"success": True, "extractions": []})
         
         # Get all netCDF files
         nc_files = [f for f in os.listdir(extracted_dir) if f.endswith('.nc')]
+        print(f"Found {len(nc_files)} netCDF files in {extracted_dir}:")
+        for file in nc_files:
+            print(f"  - {file}")
         
+        if len(nc_files) == 0:
+            return jsonify({"success": True, "extractions": []})
+        
+        # Look for unified data files
         extractions = []
-        for nc_file in nc_files:
+        
+        # Look for any file with "extracted_data.nc" in the name - these are unified files
+        unified_files = [f for f in nc_files if "extracted_data.nc" in f]
+        print(f"Found {len(unified_files)} unified files: {unified_files}")
+        
+        if unified_files:
+            # Process any unified data files first
+            for nc_file in unified_files:
+                # Find corresponding metadata file
+                base_name = nc_file.rsplit('.', 1)[0]
+                metadata_file = f"{base_name}_metadata.json"
+                metadata_path = os.path.join(extracted_dir, metadata_file)
+                
+                print(f"Looking for metadata file: {metadata_path}")
+                
+                file_path = os.path.join(extracted_dir, nc_file)
+                file_size = os.path.getsize(file_path) / (1024 * 1024)  # Convert to MB
+                
+                if os.path.exists(metadata_path):
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                    
+                    # For unified files, use the last_updated field
+                    last_updated = metadata.get('last_updated', '')
+                    collection = metadata.get('collection', '')
+                    start_date = metadata.get('start_date', '')
+                    end_date = metadata.get('end_date', '')
+                    num_chips = metadata.get('num_chips', 0)
+                else:
+                    # Create default metadata if file exists but metadata doesn't
+                    last_updated = datetime.datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
+                    # Try to extract collection from filename (e.g., S2_64px_extracted_data.nc -> S2)
+                    collection = nc_file.split('_')[0] if '_' in nc_file else ''
+                    start_date = ''
+                    end_date = ''
+                    num_chips = 0
+                
+                extraction_data = {
+                    'filename': nc_file,
+                    'created': datetime.datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
+                    'last_updated': last_updated,
+                    'collection': collection,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'num_chips': num_chips,
+                    'unified': True,
+                    'file_size_mb': round(file_size, 2)
+                }
+                extractions.append(extraction_data)
+                print(f"Added unified file to extractions: {nc_file}")
+            
+            # If we found unified files, just return those and skip legacy files
+            if extractions:
+                # Sort by creation time, most recent first
+                extractions.sort(key=lambda x: x.get('last_updated', x.get('created', '')), reverse=True)
+                
+                return jsonify({
+                    "success": True, 
+                    "extractions": extractions
+                })
+        
+        # If no unified files found, process legacy files
+        legacy_files = [f for f in nc_files if "extracted_data.nc" not in f]
+        print(f"Processing {len(legacy_files)} legacy files")
+        
+        for nc_file in legacy_files:
             # Find corresponding metadata file
             base_name = nc_file.rsplit('.', 1)[0]
             metadata_file = f"{base_name}_metadata.json"
@@ -481,27 +778,33 @@ def list_extracted_data():
                 file_path = os.path.join(extracted_dir, nc_file)
                 file_size = os.path.getsize(file_path) / (1024 * 1024)  # Convert to MB
                 
-                extractions.append({
+                extraction_data = {
                     'filename': nc_file,
                     'created': datetime.datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
+                    'extraction_time': metadata.get('extraction_time', ''),
                     'collection': metadata.get('collection', ''),
                     'start_date': metadata.get('start_date', ''),
                     'end_date': metadata.get('end_date', ''),
                     'num_chips': metadata.get('num_chips', 0),
-                    'chip_size': metadata.get('chip_size', 0),
-                    'bands': metadata.get('bands', []),
+                    'unified': False,
                     'file_size_mb': round(file_size, 2)
-                })
+                }
+                extractions.append(extraction_data)
         
-        # Sort by creation time (newest first)
-        extractions.sort(key=lambda x: x['created'], reverse=True)
+        print(f"Returning {len(extractions)} extractions:")
+        for ext in extractions:
+            print(f"  - {ext['filename']} (unified: {ext['unified']})")
+        
+        # Sort by creation time, most recent first
+        extractions.sort(key=lambda x: x.get('last_updated', x.get('extraction_time', x.get('created', ''))), reverse=True)
         
         return jsonify({
-            "success": True,
+            "success": True, 
             "extractions": extractions
         })
         
     except Exception as e:
+        print(f"Error in list_extracted_data: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 # Helper class for NumPy serialization
@@ -523,23 +826,66 @@ def get_patch_visualization():
         project_id = request.args.get('project_id', '')
         extraction_file = request.args.get('file', '')
         visualization_type = request.args.get('vis_type', 'true_color')
+        check_only = request.args.get('check_only', 'false').lower() == 'true'
+        
+        print(f"get_patch_visualization called: project={project_id}, file={extraction_file}, type={visualization_type}, check_only={check_only}")
         
         if not project_id:
             return jsonify({"success": False, "message": "Project ID is required"}), 400
         
+        # Check if project exists
+        project_dir = os.path.join(PROJECTS_DIR, project_id)
+        if not os.path.exists(project_dir) or not os.path.isdir(project_dir):
+            return jsonify({"success": False, "message": f"Project '{project_id}' not found"}), 404
+        
+        # Check if extracted_data directory exists
+        extracted_dir = os.path.join(project_dir, "extracted_data")
+        if not os.path.exists(extracted_dir):
+            return jsonify({"success": False, "message": "No extracted data found"}), 404
+        
+        # If no specific file is provided, look for unified data file
         if not extraction_file:
-            return jsonify({"success": False, "message": "Extraction file is required"}), 400
+            # Get all .nc files
+            nc_files = [f for f in os.listdir(extracted_dir) if f.endswith('.nc')]
+            
+            # Look for any file with "extracted_data.nc" in the name - these are unified files
+            unified_files = [f for f in nc_files if "extracted_data.nc" in f]
+            
+            if unified_files:
+                # Sort by modification time (most recent first)
+                unified_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)
+                extraction_file = unified_files[0]
+            else:
+                # No unified file found, try to get the most recent file
+                if nc_files:
+                    # Sort by modification time (most recent first)
+                    nc_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)
+                    extraction_file = nc_files[0]
+                else:
+                    return jsonify({"success": False, "message": "No extracted data files found"}), 404
         
-        # Construct the file path
-        extracted_dir = os.path.join(PROJECTS_DIR, project_id, "extracted_data")
+        # Check if the extraction file exists
         file_path = os.path.join(extracted_dir, extraction_file)
-        
         if not os.path.exists(file_path):
-            return jsonify({"success": False, "message": f"File {extraction_file} not found"}), 404
+            return jsonify({"success": False, "message": f"Extraction file '{extraction_file}' not found"}), 404
+            
+        # If we only want to check if the file exists, return now
+        if check_only:
+            return jsonify({
+                "success": True,
+                "file_exists": True,
+                "filename": extraction_file,
+                "project_id": project_id
+            })
         
-        # Load the dataset
+        # Open the dataset
         ds = xr.open_dataset(file_path)
+        
+        # Get the visualization data
         collection = ds.attrs.get('collection', 'S2')
+        
+        # Prepare patches data
+        patch_data = []
         
         # Get the chips, coordinates, and labels
         chips = ds.chips.values
@@ -549,8 +895,6 @@ def get_patch_visualization():
         bands = ds.band.values.tolist()
         
         # Create visualization data for each patch
-        patch_data = []
-        
         for i in range(len(longitudes)):
             # Get the current chip and its coordinates
             chip = chips[i]
@@ -688,35 +1032,77 @@ def train_model():
         extraction_files = data.get('extraction_files', [])
         model_name = data.get('model_name', '')
         batch_size = data.get('batch_size', 32)
-        epochs = data.get('epochs', 160)
-        test_split = data.get('test_split', 0.3)
-        augmentation = data.get('augmentation', True)
+        epochs = data.get('epochs', 10)
+        test_split = data.get('test_split', 0.3)  # Use test_split instead of validation_split
+        augmentation = data.get('augmentation', True)  # Add augmentation parameter which may be expected
         
-        if not project_id or not extraction_files or not model_name:
-            return jsonify({"success": False, "message": "Project ID, extraction files, and model name are required"}), 400
+        # If special "auto_detect" value is provided or extraction_files is empty, let the backend find the files
+        auto_detect = 'auto_detect' in extraction_files or not extraction_files
         
-        # Check if project exists
+        if not project_id:
+            return jsonify({"success": False, "message": "Project ID is required"}), 400
+        
+        if not model_name:
+            return jsonify({"success": False, "message": "Model name is required"}), 400
+        
+        # Check if the project exists
         project_dir = os.path.join(PROJECTS_DIR, project_id)
         if not os.path.exists(project_dir) or not os.path.isdir(project_dir):
             return jsonify({"success": False, "message": f"Project '{project_id}' not found"}), 404
         
+        # Check if extracted_data directory exists
+        extracted_dir = os.path.join(project_dir, "extracted_data")
+        if not os.path.exists(extracted_dir):
+            return jsonify({"success": False, "message": "No extracted data found"}), 404
+        
+        # If auto_detect is true or no extraction files are provided, look for unified data files
+        if auto_detect:
+            extraction_files = []  # Reset the list
+            # Get all .nc files
+            nc_files = [f for f in os.listdir(extracted_dir) if f.endswith('.nc')]
+            
+            # Look for any file with "extracted_data.nc" in the name - these are unified files
+            unified_files = [f for f in nc_files if "extracted_data.nc" in f]
+            
+            if unified_files:
+                # Sort by modification time (most recent first)
+                unified_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)
+                extraction_files = [unified_files[0]]
+                logger.info(f"Auto-detected unified data file: {unified_files[0]}")
+            else:
+                # No unified file found, try to get the most recent file
+                if nc_files:
+                    # Sort by modification time (most recent first)
+                    nc_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)
+                    extraction_files = [nc_files[0]]
+                    logger.info(f"Auto-detected legacy data file: {nc_files[0]}")
+                else:
+                    return jsonify({"success": False, "message": "No extracted data files found"}), 404
+        
+        # Validate that the extraction files exist
+        for file in extraction_files:
+            file_path = os.path.join(extracted_dir, file)
+            if not os.path.exists(file_path):
+                return jsonify({"success": False, "message": f"Extraction file '{file}' not found"}), 404
+        
         # Create a progress callback function
         def progress_callback(progress, current_epoch, total_epochs, logs):
+            # Send progress updates via Socket.IO
             socketio.emit('training_progress', {
                 'project_id': project_id,
                 'progress': progress,
-                'epoch': current_epoch,
+                'current_epoch': current_epoch,
                 'total_epochs': total_epochs,
-                'loss': float(logs.get('loss', 0)),
-                'acc': float(logs.get('acc', 0)),
-                'val_loss': float(logs.get('val_loss', 0)),
-                'val_acc': float(logs.get('val_acc', 0))
+                'logs': logs
             })
+        
+        # Log the files that will be used for training
+        logger.info(f"Training model '{model_name}' with files: {extraction_files}")
         
         # Initialize model trainer
         trainer = ModelTrainer(project_id, project_dir)
         
-        # Train the model
+        # Train the model with parameters that match the ModelTrainer.train() method signature
         result = trainer.train(
             model_name=model_name,
             extraction_files=extraction_files,
@@ -1187,6 +1573,43 @@ def get_map_imagery():
         
     except Exception as e:
         logger.error(f"Error retrieving map imagery: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/check_file_exists', methods=['GET'])
+def check_file_exists():
+    try:
+        # Get parameters
+        project_id = request.args.get('project_id', '')
+        filename = request.args.get('filename', '')
+        
+        if not project_id or not filename:
+            return jsonify({"success": False, "message": "Project ID and filename are required"}), 400
+        
+        # Check if project exists
+        project_dir = os.path.join(PROJECTS_DIR, project_id)
+        if not os.path.exists(project_dir) or not os.path.isdir(project_dir):
+            return jsonify({"success": False, "message": f"Project '{project_id}' not found"}), 404
+        
+        # Check if extracted_data directory exists
+        extracted_dir = os.path.join(project_dir, "extracted_data")
+        if not os.path.exists(extracted_dir):
+            return jsonify({"success": True, "file_exists": False})
+        
+        # Check if file exists
+        file_path = os.path.join(extracted_dir, filename)
+        file_exists = os.path.exists(file_path)
+        
+        print(f"Checking if {file_path} exists: {file_exists}")
+        
+        return jsonify({
+            "success": True,
+            "file_exists": file_exists,
+            "project_id": project_id,
+            "filename": filename
+        })
+    
+    except Exception as e:
+        print(f"Error in check_file_exists: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 if __name__ == '__main__':

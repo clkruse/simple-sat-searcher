@@ -700,11 +700,12 @@ body {
 
 /* Information box */
 .info-box {
-    background-color: #f5f7f9;
+    background-color: #f0f7ff;
     padding: 12px;
     border-radius: 4px;
     margin-top: 15px;
     margin-bottom: 10px;
+    border-left: 3px solid #3a86ff;
 }
 
 .info-box h4 {
@@ -718,6 +719,14 @@ body {
     margin: 5px 0;
     font-size: 13px;
     color: #555;
+    display: flex;
+    align-items: center;
+}
+
+.info-box i {
+    color: #3a86ff;
+    margin-right: 8px;
+    font-size: 14px;
 }
 
 /* Legend box */

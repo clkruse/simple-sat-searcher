@@ -348,6 +348,9 @@ class ModelDeployer:
             # Get satellite collection and check for images - optimized to reduce Earth Engine API calls
             self.logger.info(f"Retrieving {self.collection} collection for date range {start_date} to {end_date}")
             
+            # Initialize the satellite collection and composite image
+            collection = self.get_satellite_collection(start_date, end_date)
+            
             # Convert region to ee.Geometry
             self.logger.info("Converting input region to Earth Engine geometry")
             region_ee = self.get_region_bounds(region)

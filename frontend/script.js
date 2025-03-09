@@ -6,6 +6,19 @@ const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiY2xrcnVzZSIsImEiOiJjaXIxY2M2dGcwMnNiZnZt
 // Initialize Socket.IO
 const socket = io(API_URL);
 
+// Add Socket.IO connection event handlers
+socket.on('connect', () => {
+    console.log('Socket.IO connected with ID:', socket.id);
+});
+
+socket.on('disconnect', (reason) => {
+    console.warn('Socket.IO disconnected:', reason);
+});
+
+socket.on('connect_error', (error) => {
+    console.error('Socket.IO connection error:', error);
+});
+
 // Current project ID
 let currentProjectId = null;
 let currentProjectName = 'No Project Selected';
@@ -253,14 +266,12 @@ function resetExtractionProgress() {
     
     if (progressContainer) {
         progressContainer.classList.remove('show');
-        progressContainer.style.display = 'none';
+        // Removing this line as it overrides the CSS class
+        // progressContainer.style.display = 'none';
     }
     
-    if (progressBar) {
+    if (progressBar && progressText) {
         progressBar.style.width = '0%';
-    }
-    
-    if (progressText) {
         progressText.textContent = 'Ready to extract';
     }
 }
@@ -354,6 +365,23 @@ map.on('load', () => {
         }
     });
     
+    // Change cursor when hovering over points
+    map.on('mouseenter', 'point-positive', () => {
+        map.getCanvas().style.cursor = 'pointer';
+    });
+    
+    map.on('mouseenter', 'point-negative', () => {
+        map.getCanvas().style.cursor = 'pointer';
+    });
+    
+    map.on('mouseleave', 'point-positive', () => {
+        map.getCanvas().style.cursor = '';
+    });
+    
+    map.on('mouseleave', 'point-negative', () => {
+        map.getCanvas().style.cursor = '';
+    });
+    
     // Show project selection modal
     showProjectModal();
 });
@@ -367,6 +395,30 @@ map.on('click', (e) => {
     
     const pointClass = document.querySelector('input[name="point-class"]:checked').value;
     addPoint(e.lngLat, pointClass);
+});
+
+// Remove point on right click
+map.on('contextmenu', (e) => {
+    if (!currentProjectId) {
+        return;
+    }
+    
+    // Get features at the clicked point - check only the layers that exist
+    const layers = ['point-positive', 'point-negative'].filter(layerId => map.getLayer(layerId));
+    
+    if (layers.length === 0) {
+        return; // No valid layers to query
+    }
+    
+    const features = map.queryRenderedFeatures(e.point, {
+        layers: layers
+    });
+    
+    // If a point was clicked, remove it
+    if (features.length > 0) {
+        const pointId = features[0].properties.id;
+        removePoint(pointId);
+    }
 });
 
 // Function to add a point
@@ -394,6 +446,49 @@ function addPoint(lngLat, pointClass) {
     
     // Update stats
     updatePointCounts();
+    
+    // Automatically export points if we have a project selected
+    if (currentProjectId) {
+        exportPointsToBackend(false);
+    }
+}
+
+// Function to remove a point
+function removePoint(pointId) {
+    // Find the point index
+    const pointIndex = points.findIndex(p => p.properties.id === pointId);
+    
+    if (pointIndex === -1) {
+        return;
+    }
+    
+    // Get point class for the notification
+    const pointClass = points[pointIndex].properties.class;
+    
+    // Remove the point
+    points.splice(pointIndex, 1);
+    
+    // Update the map source data
+    updatePointsOnMap();
+    
+    // Update stats
+    updatePointCounts();
+    
+    // Export updated points to backend
+    if (currentProjectId) {
+        exportPointsToBackend(false)
+            .then(() => {
+                // Show notification with more details
+                showNotification(`Removed ${pointClass} point and associated data`, 'success');
+            })
+            .catch(error => {
+                console.error('Error exporting points after removal:', error);
+                showNotification('Point removed, but there was an error updating data', 'warning');
+            });
+    } else {
+        // Show simple notification if no project
+        showNotification('Point removed', 'success');
+    }
 }
 
 // Update points on the map
@@ -423,16 +518,20 @@ function pointsToGeoJSON() {
     };
 }
 
-// Export points to backend
-document.getElementById('export-points-btn').addEventListener('click', async () => {
+// Export points to backend without notifications
+async function exportPointsToBackend(showNotifications = true) {
     if (!currentProjectId) {
-        showProjectModal();
-        return;
+        if (showNotifications) {
+            showProjectModal();
+        }
+        return Promise.reject(new Error('No project selected'));
     }
     
     if (points.length === 0) {
-        alert('No points to export.');
-        return;
+        if (showNotifications) {
+            alert('No points to export.');
+        }
+        return Promise.resolve({ success: true, message: 'No points to export' });
     }
     
     const geoJSON = pointsToGeoJSON();
@@ -452,18 +551,36 @@ document.getElementById('export-points-btn').addEventListener('click', async () 
         const data = await response.json();
         
         if (data.success) {
-            const total = geoJSON.features.length;
-            const positiveCount = points.filter(p => p.properties.class === 'positive').length;
-            const negativeCount = points.filter(p => p.properties.class === 'negative').length;
-            
-            alert(`Exported ${total} points (${positiveCount} positive, ${negativeCount} negative)`);
+            if (showNotifications) {
+                const total = geoJSON.features.length;
+                const positiveCount = points.filter(p => p.properties.class === 'positive').length;
+                const negativeCount = points.filter(p => p.properties.class === 'negative').length;
+                
+                alert(`Exported ${total} points (${positiveCount} positive, ${negativeCount} negative)`);
+            }
+            return data;
         } else {
-            alert('Error: ' + data.message);
+            if (showNotifications) {
+                alert('Error: ' + data.message);
+            }
+            return Promise.reject(new Error(data.message));
         }
     } catch (error) {
-        alert('Connection error: ' + error.message);
+        if (showNotifications) {
+            alert('Connection error: ' + error.message);
+        }
+        return Promise.reject(error);
     }
-});
+}
+
+// Export points to backend (with notifications) - for the button
+// Note: Button may not exist in the DOM as it's been removed from the UI
+const exportButton = document.getElementById('export-points-btn');
+if (exportButton) {
+    exportButton.addEventListener('click', () => {
+        exportPointsToBackend(true);
+    });
+}
 
 // Clear all points
 document.getElementById('clear-btn').addEventListener('click', () => {
@@ -517,14 +634,11 @@ document.getElementById('create-project-btn').addEventListener('click', async ()
 });
 
 // Load saved points for a project
-async function loadProjectPoints(projectId, latestExport) {
-    if (!latestExport) {
-        // No points to load
-        return;
-    }
-    
+async function loadProjectPoints(projectId, latestExport = 'points.geojson') {
     try {
-        const response = await fetch(`${API_URL}/load_points?project_id=${projectId}&filename=${latestExport}`);
+        // Always use points.geojson as the default if not specified
+        const filename = latestExport || 'points.geojson';
+        const response = await fetch(`${API_URL}/load_points?project_id=${projectId}&filename=${filename}`);
         const data = await response.json();
         
         if (data.success && data.geojson && data.geojson.features) {
@@ -582,10 +696,8 @@ function selectProject(projectName, projectId = null, latestExport = null) {
     updatePointsOnMap();
     updatePointCounts();
     
-    // Load saved points if available
-    if (latestExport) {
-        loadProjectPoints(projectId, latestExport);
-    }
+    // Always load points - will default to points.geojson
+    loadProjectPoints(projectId, latestExport);
     
     // Close modal and open control panel
     PanelManager.closeAllPanels();
@@ -696,14 +808,14 @@ async function loadExtractions() {
                             <div class="extraction-date">${formattedDate}</div>
                         </div>
                         <div class="extraction-details">
-                            <p>Date Range: ${extraction.start_date} to ${extraction.end_date}</p>
-                            <p>Chips: ${extraction.num_chips} (${extraction.chip_size}×${extraction.chip_size} px)</p>
+                            <p>Date Range: ${extraction.start_date || 'Unknown'} to ${extraction.end_date || 'Unknown'}</p>
+                            <p>Chips: ${extraction.num_chips || 0} ${extraction.chip_size ? `(${extraction.chip_size}×${extraction.chip_size} px)` : ''}</p>
                             <p>File Size: ${extraction.file_size_mb} MB</p>
                         </div>
                         <div class="extraction-tags">
                             <span class="extraction-tag">${extraction.collection}</span>
-                            <span class="extraction-tag">${extraction.bands.length} bands</span>
-                            <span class="extraction-tag">${extraction.chip_size}px</span>
+                            <span class="extraction-tag">${extraction.bands ? extraction.bands.length : 'Unknown'} bands</span>
+                            <span class="extraction-tag">${extraction.chip_size ? extraction.chip_size : 'Unknown'}px</span>
                         </div>
                     `;
                     
@@ -777,13 +889,19 @@ async function loadVisualizationExtractions() {
     const visualizationSelect = document.getElementById('visualization-extraction');
     visualizationSelect.innerHTML = '<option value="">Loading...</option>';
     
+    console.log("Loading visualization extractions for project:", currentProjectId);
+    
+    // Check for unified data files
     try {
         const response = await fetch(`${API_URL}/list_extracted_data?project_id=${currentProjectId}`);
         const data = await response.json();
         
+        console.log("Visualization extraction response:", data);
+        
         if (data.success) {
             if (data.extractions.length === 0) {
                 // No extractions available
+                console.log("No extractions found for visualization");
                 document.getElementById('no-extractions').classList.remove('hidden');
                 document.getElementById('visualization-controls').classList.add('hidden');
                 visualizationSelect.innerHTML = '';
@@ -791,25 +909,76 @@ async function loadVisualizationExtractions() {
                 document.getElementById('no-extractions').classList.add('hidden');
                 document.getElementById('visualization-controls').classList.remove('hidden');
                 
-                // Populate extraction select
-                visualizationSelect.innerHTML = '';
-                data.extractions.forEach(extraction => {
-                    const option = document.createElement('option');
-                    option.value = extraction.filename;
-                    
-                    // Format date for display
-                    const extractionDate = new Date(extraction.created);
-                    const formattedDate = extractionDate.toLocaleDateString();
-                    
-                    option.textContent = `${extraction.collection} - ${extraction.start_date} to ${extraction.end_date} (${formattedDate})`;
-                    visualizationSelect.appendChild(option);
-                });
+                // Find unified files by checking the unified flag or extracted_data.nc in the filename
+                const unifiedExtractions = data.extractions.filter(extraction => 
+                    extraction.unified === true || 
+                    (extraction.filename && extraction.filename.includes('extracted_data.nc'))
+                );
                 
-                // Show clear button if there are overlays
-                if (patchOverlays.length > 0) {
-                    document.getElementById('clear-visualization-btn').classList.remove('hidden');
+                console.log("Unified extractions found:", unifiedExtractions);
+                
+                if (unifiedExtractions.length > 0) {
+                    // Hide the extraction selector and use the unified file automatically
+                    document.getElementById('visualization-extraction-container').style.display = 'none';
+                    
+                    // Set a default value for the visualization type
+                    const visualizationType = document.getElementById('visualization-type');
+                    if (!visualizationType.value) {
+                        visualizationType.value = 'true_color';
+                    }
+                    
+                    // Automatically load visualization with the unified file
+                    const unifiedFile = unifiedExtractions[0].filename;
+                    console.log("Using file for visualization:", unifiedFile);
+                    
+                    // Add a hidden option with the unified file
+                    visualizationSelect.innerHTML = '';
+                    const option = document.createElement('option');
+                    option.value = unifiedFile;
+                    option.selected = true;
+                    visualizationSelect.appendChild(option);
+                    
+                    // Show clear button if there are overlays
+                    if (patchOverlays.length > 0) {
+                        document.getElementById('clear-visualization-btn').classList.remove('hidden');
+                    } else {
+                        document.getElementById('clear-visualization-btn').classList.add('hidden');
+                    }
+                    
+                    // Automatically load the visualization when the type changes
+                    document.getElementById('visualization-type').addEventListener('change', function() {
+                        document.getElementById('load-visualization-btn').click();
+                    });
+                    
+                    // Automatically trigger visualization load
+                    setTimeout(() => {
+                        document.getElementById('load-visualization-btn').click();
+                    }, 500);
                 } else {
-                    document.getElementById('clear-visualization-btn').classList.add('hidden');
+                    console.log("No unified extractions found, using dropdown selection");
+                    // Fall back to the old dropdown selection for backward compatibility
+                    document.getElementById('visualization-extraction-container').style.display = 'block';
+                    
+                    // Populate extraction select
+                    visualizationSelect.innerHTML = '';
+                    data.extractions.forEach(extraction => {
+                        const option = document.createElement('option');
+                        option.value = extraction.filename;
+                        
+                        // Format date for display
+                        const extractionDate = new Date(extraction.created);
+                        const formattedDate = extractionDate.toLocaleDateString();
+                        
+                        option.textContent = `${extraction.collection} - ${extraction.start_date} to ${extraction.end_date} (${formattedDate})`;
+                        visualizationSelect.appendChild(option);
+                    });
+                    
+                    // Show clear button if there are overlays
+                    if (patchOverlays.length > 0) {
+                        document.getElementById('clear-visualization-btn').classList.remove('hidden');
+                    } else {
+                        document.getElementById('clear-visualization-btn').classList.add('hidden');
+                    }
                 }
             }
         } else {
@@ -1137,25 +1306,36 @@ function getVisualizeTypeLabel(visualizationType) {
 
 // Socket.IO event handlers for training
 socket.on('training_progress', (data) => {
+    console.log('Received training_progress event:', data);
     if (data.project_id === currentProjectId) {
         updateTrainingProgress(data);
+    } else {
+        console.log('Ignoring training_progress event for different project:', data.project_id, 'current:', currentProjectId);
     }
 });
 
 socket.on('training_complete', (data) => {
+    console.log('Received training_complete event:', data);
     if (data.project_id === currentProjectId) {
         handleTrainingComplete(data);
+    } else {
+        console.log('Ignoring training_complete event for different project:', data.project_id, 'current:', currentProjectId);
     }
 });
 
 socket.on('training_error', (data) => {
+    console.log('Received training_error event:', data);
     if (data.project_id === currentProjectId) {
         handleTrainingError(data.error);
+    } else {
+        console.log('Ignoring training_error event for different project:', data.project_id, 'current:', currentProjectId);
     }
 });
 
 // Function to update training progress
 function updateTrainingProgress(data) {
+    console.log('Updating training progress with data:', data);
+    
     const progressBar = document.getElementById('training-progress');
     const progressText = document.getElementById('training-progress-text');
     const metricsText = document.getElementById('training-metrics');
@@ -1164,75 +1344,94 @@ function updateTrainingProgress(data) {
     const trainingAccuracyValue = document.getElementById('training-accuracy-value');
     const validationAccuracyValue = document.getElementById('validation-accuracy-value');
     
-    if (progressBar && progressText) {
-        progressBar.style.width = `${data.progress}%`;
-        progressText.textContent = `Training model: Epoch ${data.epoch}/${data.total_epochs} (${Math.round(data.progress)}%)`;
+    if (!progressBar || !progressText) {
+        console.error('Missing progress elements:', { progressBar, progressText });
+        return;
+    }
+    
+    progressBar.style.width = `${data.progress}%`;
+    progressText.textContent = `Training model: Epoch ${data.current_epoch}/${data.total_epochs} (${Math.round(data.progress)}%)`;
+    
+    // Update the progress bar color based on progress
+    if (data.progress < 25) {
+        progressBar.style.backgroundColor = '#3498db'; // Blue
+    } else if (data.progress < 75) {
+        progressBar.style.backgroundColor = '#2ecc71'; // Green
+    } else {
+        progressBar.style.backgroundColor = '#27ae60'; // Darker green
+    }
+    
+    // Check if logs are available
+    if (!data.logs) {
+        console.warn('No logs data available in training progress update');
+        return;
+    }
+    
+    
+    if (trainingAccuracyBar && validationAccuracyBar) {
+        const trainingAccuracy = (data.logs.accuracy * 100) || (data.logs.acc * 100) || 0;
+        const validationAccuracy = (data.logs.val_accuracy * 100) || (data.logs.val_acc * 100) || 0;
         
-        // Update the progress bar color based on progress
-        if (data.progress < 25) {
-            progressBar.style.backgroundColor = '#3498db'; // Blue
-        } else if (data.progress < 75) {
-            progressBar.style.backgroundColor = '#2ecc71'; // Green
+        trainingAccuracyBar.style.width = `${trainingAccuracy}%`;
+        validationAccuracyBar.style.width = `${validationAccuracy}%`;
+        
+        trainingAccuracyValue.textContent = `${trainingAccuracy.toFixed(1)}%`;
+        validationAccuracyValue.textContent = `${validationAccuracy.toFixed(1)}%`;
+        
+        // Color training accuracy bar based on value
+        if (trainingAccuracy < 50) {
+            trainingAccuracyBar.style.backgroundColor = '#e74c3c'; // Red
+        } else if (trainingAccuracy < 75) {
+            trainingAccuracyBar.style.backgroundColor = '#f39c12'; // Orange
+        } else if (trainingAccuracy < 90) {
+            trainingAccuracyBar.style.backgroundColor = '#2ecc71'; // Green
         } else {
-            progressBar.style.backgroundColor = '#27ae60'; // Darker green
+            trainingAccuracyBar.style.backgroundColor = '#27ae60'; // Darker green
         }
         
-        // Update accuracy bars
-        if (trainingAccuracyBar && validationAccuracyBar) {
-            const trainingAccuracy = (data.acc * 100);
-            const validationAccuracy = (data.val_acc * 100);
-            
-            trainingAccuracyBar.style.width = `${trainingAccuracy}%`;
-            validationAccuracyBar.style.width = `${validationAccuracy}%`;
-            
-            trainingAccuracyValue.textContent = `${trainingAccuracy.toFixed(1)}%`;
-            validationAccuracyValue.textContent = `${validationAccuracy.toFixed(1)}%`;
-            
-            // Color training accuracy bar based on value
-            if (trainingAccuracy < 50) {
-                trainingAccuracyBar.style.backgroundColor = '#e74c3c'; // Red
-            } else if (trainingAccuracy < 75) {
-                trainingAccuracyBar.style.backgroundColor = '#f39c12'; // Orange
-            } else if (trainingAccuracy < 90) {
-                trainingAccuracyBar.style.backgroundColor = '#2ecc71'; // Green
-            } else {
-                trainingAccuracyBar.style.backgroundColor = '#27ae60'; // Darker green
-            }
-            
-            // Color validation accuracy bar based on value
-            if (validationAccuracy < 50) {
-                validationAccuracyBar.style.backgroundColor = '#e74c3c'; // Red
-            } else if (validationAccuracy < 75) {
-                validationAccuracyBar.style.backgroundColor = '#f39c12'; // Orange
-            } else if (validationAccuracy < 90) {
-                validationAccuracyBar.style.backgroundColor = '#3498db'; // Blue
-            } else {
-                validationAccuracyBar.style.backgroundColor = '#2980b9'; // Darker blue
-            }
+        // Color validation accuracy bar based on value
+        if (validationAccuracy < 50) {
+            validationAccuracyBar.style.backgroundColor = '#e74c3c'; // Red
+        } else if (validationAccuracy < 75) {
+            validationAccuracyBar.style.backgroundColor = '#f39c12'; // Orange
+        } else if (validationAccuracy < 90) {
+            validationAccuracyBar.style.backgroundColor = '#3498db'; // Blue
+        } else {
+            validationAccuracyBar.style.backgroundColor = '#2980b9'; // Darker blue
         }
+    } else {
+        console.warn('Missing accuracy bar elements:', { trainingAccuracyBar, validationAccuracyBar });
+    }
+    
+    if (metricsText) {
+        // Extract metrics from logs, using fallbacks for different naming conventions
+        const loss = data.logs.loss || 0;
+        const acc = data.logs.accuracy || data.logs.acc || 0;
+        const val_loss = data.logs.val_loss || 0;
+        const val_acc = data.logs.val_accuracy || data.logs.val_acc || 0;
         
-        if (metricsText) {
-            metricsText.innerHTML = `
-                <div class="metrics-container">
-                    <div class="metric">
-                        <span class="metric-label">Loss:</span>
-                        <span class="metric-value">${data.loss.toFixed(4)}</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Accuracy:</span>
-                        <span class="metric-value">${(data.acc * 100).toFixed(1)}%</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Validation Loss:</span>
-                        <span class="metric-value">${data.val_loss.toFixed(4)}</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Validation Accuracy:</span>
-                        <span class="metric-value">${(data.val_acc * 100).toFixed(1)}%</span>
-                    </div>
+        metricsText.innerHTML = `
+            <div class="metrics-container">
+                <div class="metric">
+                    <span class="metric-label">Loss:</span>
+                    <span class="metric-value">${loss.toFixed(4)}</span>
                 </div>
-            `;
-        }
+                <div class="metric">
+                    <span class="metric-label">Accuracy:</span>
+                    <span class="metric-value">${(acc * 100).toFixed(1)}%</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Validation Loss:</span>
+                    <span class="metric-value">${val_loss.toFixed(4)}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Validation Accuracy:</span>
+                    <span class="metric-value">${(val_acc * 100).toFixed(1)}%</span>
+                </div>
+            </div>
+        `;
+    } else {
+        console.warn('Missing metrics text element:', metricsText);
     }
 }
 
@@ -1251,7 +1450,11 @@ function handleTrainingComplete(data) {
         // Set to 100% complete
         progressBar.style.width = '100%';
         progressBar.style.backgroundColor = '#27ae60'; // Dark green for completion
-        progressText.textContent = `Training complete! Final accuracy: ${(data.metrics.acc * 100).toFixed(1)}%`;
+        
+        // Get accuracy from metrics, handling different naming conventions
+        const finalAcc = data.metrics.accuracy || data.metrics.acc || 0;
+        const finalValAcc = data.metrics.val_accuracy || data.metrics.val_acc || 0;
+        progressText.textContent = `Training complete! Final accuracy: ${(finalAcc * 100).toFixed(1)}%`;
         
         // Stop the animation
         progressBar.classList.add('complete');
@@ -1261,8 +1464,8 @@ function handleTrainingComplete(data) {
         
         // Update accuracy bars to final values
         if (trainingAccuracyBar && validationAccuracyBar) {
-            const trainingAccuracy = (data.metrics.acc * 100);
-            const validationAccuracy = (data.metrics.val_acc * 100);
+            const trainingAccuracy = (data.metrics.accuracy || data.metrics.acc || 0) * 100;
+            const validationAccuracy = (data.metrics.val_accuracy || data.metrics.val_acc || 0) * 100;
             
             trainingAccuracyBar.style.width = `${trainingAccuracy}%`;
             validationAccuracyBar.style.width = `${validationAccuracy}%`;
@@ -1282,7 +1485,7 @@ function handleTrainingComplete(data) {
         loadModels();
         
         // Show success message
-        showNotification(`Model '${data.model_name}' trained successfully! Final accuracy: ${(data.metrics.val_acc * 100).toFixed(1)}%`, 'success');
+        showNotification(`Model '${data.model_name}' trained successfully! Final accuracy: ${(finalValAcc * 100).toFixed(1)}%`, 'success');
         
         // After a delay, fade out the progress display
         setTimeout(() => {
@@ -1326,26 +1529,95 @@ document.getElementById('train-btn').addEventListener('click', async () => {
         return;
     }
     
-    const modelName = document.getElementById('model-name').value.trim();
-    const selectedExtractions = Array.from(document.getElementById('training-extractions').selectedOptions)
-        .map(option => option.value);
+    // Check if model name element exists
+    const modelNameElement = document.getElementById('model-name');
+    if (!modelNameElement) {
+        console.error("Model name input element not found");
+        return;
+    }
+    
+    const modelName = modelNameElement.value.trim();
+    
+    // Check if we're using unified data (dropdown is hidden)
+    const trainingExtractionsContainer = document.getElementById('training-extractions-container');
+    const isUsingUnifiedData = trainingExtractionsContainer && 
+                              (trainingExtractionsContainer.style.display === 'none' || 
+                               trainingExtractionsContainer.classList.contains('hidden'));
+    
+    let selectedExtractions = [];
+    
+    if (isUsingUnifiedData) {
+        // When using unified data, get the value directly from the hidden select element
+        const trainingSelect = document.getElementById('training-extractions');
+        if (trainingSelect && trainingSelect.options && trainingSelect.options.length > 0) {
+            selectedExtractions = [trainingSelect.options[0].value];
+        } else {
+            // Try to find a unified file
+            const unifiedFile = Array.from(document.querySelectorAll('.model-training-info'))
+                .filter(el => el && el.textContent && el.textContent.includes('unified'))
+                .map(() => {
+                    // Look for any unified file
+                    const files = Array.from(document.querySelectorAll('option'))
+                        .filter(opt => opt && opt.value && opt.value.includes('extracted_data.nc'))
+                        .map(opt => opt.value);
+                    return files.length > 0 ? files[0] : null;
+                })
+                .filter(Boolean)[0];
+                
+            if (unifiedFile) {
+                selectedExtractions = [unifiedFile];
+            }
+        }
+        
+        // If we still don't have a file, let the backend find it
+        if (selectedExtractions.length === 0) {
+            console.log("No specific extraction file found, using auto_detect");
+            selectedExtractions = ['auto_detect'];
+        }
+    } else {
+        // Normal mode: get selected options from the dropdown with safety checks
+        const trainingSelect = document.getElementById('training-extractions');
+        if (trainingSelect && trainingSelect.selectedOptions) {
+            selectedExtractions = Array.from(trainingSelect.selectedOptions)
+                .map(option => option.value);
+        } else {
+            console.log("Training select not found or has no selectedOptions, using auto_detect");
+            selectedExtractions = ['auto_detect'];
+        }
+    }
     
     if (!modelName) {
         alert('Please enter a model name');
         return;
     }
     
-    if (selectedExtractions.length === 0) {
-        alert('Please select at least one extraction to train on');
-        return;
+    // Get form values with safety checks
+    let batchSize = 32;
+    let epochs = 10;
+    let testSplit = 0.3;
+    let useAugmentation = true;
+    
+    const batchSizeElement = document.getElementById('batch-size');
+    if (batchSizeElement) {
+        batchSize = parseInt(batchSizeElement.value) || 32;
     }
     
-    const batchSize = parseInt(document.getElementById('batch-size').value);
-    const epochs = parseInt(document.getElementById('epochs').value);
-    const testSplit = parseFloat(document.getElementById('test-split').value);
-    const useAugmentation = document.getElementById('use-augmentation').checked;
+    const epochsElement = document.getElementById('epochs');
+    if (epochsElement) {
+        epochs = parseInt(epochsElement.value) || 10;
+    }
     
-    // Reset progress bar
+    const testSplitElement = document.getElementById('test-split');
+    if (testSplitElement) {
+        testSplit = parseFloat(testSplitElement.value) || 0.3;
+    }
+    
+    const useAugmentationElement = document.getElementById('use-augmentation');
+    if (useAugmentationElement) {
+        useAugmentation = useAugmentationElement.checked;
+    }
+    
+    // Reset progress UI with safety checks
     const progressBar = document.getElementById('training-progress');
     const progressText = document.getElementById('training-progress-text');
     const trainingAccuracyBar = document.getElementById('training-accuracy-bar');
@@ -1360,22 +1632,30 @@ document.getElementById('train-btn').addEventListener('click', async () => {
         progressText.textContent = 'Starting training...';
     }
     
-    // Reset accuracy bars
+    // Reset accuracy bars if they exist
     if (trainingAccuracyBar && validationAccuracyBar) {
         trainingAccuracyBar.style.width = '0%';
         validationAccuracyBar.style.width = '0%';
-        trainingAccuracyValue.textContent = '0.0%';
-        validationAccuracyValue.textContent = '0.0%';
+        if (trainingAccuracyValue) trainingAccuracyValue.textContent = '0.0%';
+        if (validationAccuracyValue) validationAccuracyValue.textContent = '0.0%';
     }
     
-    // Reset metrics
+    // Reset metrics if element exists
     if (metricsText) {
         metricsText.innerHTML = '';
     }
     
-    // Show status panel
-    document.getElementById('training-status').classList.remove('hidden');
-    document.getElementById('train-btn').disabled = true;
+    // Show status panel if it exists
+    const trainingStatus = document.getElementById('training-status');
+    if (trainingStatus) {
+        trainingStatus.classList.remove('hidden');
+    }
+    
+    // Disable train button
+    const trainBtn = document.getElementById('train-btn');
+    if (trainBtn) {
+        trainBtn.disabled = true;
+    }
     
     try {
         const response = await fetch(`${API_URL}/train_model`, {
@@ -1398,52 +1678,137 @@ document.getElementById('train-btn').addEventListener('click', async () => {
         
         if (!data.success) {
             alert('Error: ' + data.message);
+            // Re-enable train button on error
+            if (trainBtn) {
+                trainBtn.disabled = false;
+            }
+        } else {
+            console.log("Training started successfully");
         }
     } catch (error) {
+        console.error("Error starting training:", error);
         alert('Connection error: ' + error.message);
+        // Re-enable train button on error
+        if (trainBtn) {
+            trainBtn.disabled = false;
+        }
     }
 });
 
 // Load extractions for training
 async function loadTrainingExtractions() {
+    // Add safety check to ensure elements exist
     const trainingSelect = document.getElementById('training-extractions');
+    if (!trainingSelect) {
+        console.error("Element 'training-extractions' not found");
+        return;
+    }
+
+    // Set loading message only if element exists
     trainingSelect.innerHTML = '<option value="">Loading...</option>';
     
+    console.log("Loading training extractions for project:", currentProjectId);
+    
+    // If no project is selected, we can't load anything
+    if (!currentProjectId) {
+        console.error("No project selected, cannot load training extractions");
+        return;
+    }
+    
+    // Special case - directly check if any unified file exists (any file with extracted_data.nc)
     try {
         const response = await fetch(`${API_URL}/list_extracted_data?project_id=${currentProjectId}`);
         const data = await response.json();
         
-        if (data.success) {
-            if (data.extractions.length === 0) {
-                // No extractions available
-                document.getElementById('no-training-extractions').classList.remove('hidden');
-                document.getElementById('training-controls').classList.add('hidden');
-                trainingSelect.innerHTML = '';
+        console.log("Training extraction response:", data);
+        
+        // Get DOM elements with null checks
+        const noTrainingExtractionsEl = document.getElementById('no-training-extractions');
+        const trainingControlsEl = document.getElementById('training-controls');
+        
+        if (!data.success) {
+            console.error("Failed to fetch extraction data:", data.message);
+            if (trainingSelect) trainingSelect.innerHTML = `<option value="">Error: ${data.message}</option>`;
+            return;
+        }
+        
+        if (data.extractions.length === 0) {
+            // No extractions available
+            console.log("No extractions found for training");
+            if (noTrainingExtractionsEl) noTrainingExtractionsEl.classList.remove('hidden');
+            if (trainingControlsEl) trainingControlsEl.classList.add('hidden');
+            if (trainingSelect) trainingSelect.innerHTML = '';
+        } else {
+            if (noTrainingExtractionsEl) noTrainingExtractionsEl.classList.add('hidden');
+            if (trainingControlsEl) trainingControlsEl.classList.remove('hidden');
+            
+            // Find unified files by checking the unified flag or the filename
+            const unifiedExtractions = data.extractions.filter(extraction => 
+                extraction.unified === true || 
+                (extraction.filename && extraction.filename.includes('extracted_data.nc'))
+            );
+            
+            console.log("Unified training extractions found:", unifiedExtractions);
+            
+            const trainingExtractionsContainer = document.getElementById('training-extractions-container');
+            
+            if (unifiedExtractions.length > 0) {
+                // Hide the extraction selector and use the unified file automatically
+                if (trainingExtractionsContainer) trainingExtractionsContainer.style.display = 'none';
+                
+                // Automatically use the unified file
+                const unifiedFile = unifiedExtractions[0].filename;
+                console.log("Using unified file for training:", unifiedFile);
+                
+                // Add a hidden option with the unified file
+                if (trainingSelect) {
+                    trainingSelect.innerHTML = '';
+                    const option = document.createElement('option');
+                    option.value = unifiedFile;
+                    option.selected = true;
+                    trainingSelect.appendChild(option);
+                }
+                
+                // Show a message about using unified data
+                const trainingInfo = document.querySelector('.model-training-info');
+                if (trainingInfo) {
+                    trainingInfo.textContent = 'Using unified project data for training';
+                    trainingInfo.style.display = 'block';
+                    trainingInfo.style.fontWeight = 'bold';
+                    trainingInfo.style.marginBottom = '15px';
+                    trainingInfo.style.color = '#2c7be5';
+                }
+                
+                // Update the train button text
+                const trainButton = document.getElementById('train-btn');
+                if (trainButton) {
+                    trainButton.textContent = 'Train Model on Unified Data';
+                }
             } else {
-                document.getElementById('no-training-extractions').classList.add('hidden');
-                document.getElementById('training-controls').classList.remove('hidden');
+                console.log("No unified extractions found for training, using dropdown selection");
+                // Fall back to the old dropdown selection for backward compatibility
+                if (trainingExtractionsContainer) trainingExtractionsContainer.style.display = 'block';
                 
                 // Populate extraction select
-                trainingSelect.innerHTML = '';
-                data.extractions.forEach(extraction => {
-                    const option = document.createElement('option');
-                    option.value = extraction.filename;
-                    
-                    // Format date for display
-                    const extractionDate = new Date(extraction.created);
-                    const formattedDate = extractionDate.toLocaleDateString();
-                    
-                    // Add more details to the option text: collection, date range, number of patches, patch size, and creation date
-                    option.textContent = `${extraction.collection} - ${extraction.start_date} to ${extraction.end_date} - ${extraction.num_chips} patches (${extraction.chip_size}px) - ${formattedDate}`;
-                    trainingSelect.appendChild(option);
-                });
+                if (trainingSelect) {
+                    trainingSelect.innerHTML = '';
+                    data.extractions.forEach(extraction => {
+                        const option = document.createElement('option');
+                        option.value = extraction.filename;
+                        
+                        // Format date for display
+                        const extractionDate = new Date(extraction.created);
+                        const formattedDate = extractionDate.toLocaleDateString();
+                        
+                        option.textContent = `${extraction.collection} - ${extraction.start_date} to ${extraction.end_date} (${formattedDate})`;
+                        trainingSelect.appendChild(option);
+                    });
+                }
             }
-        } else {
-            throw new Error(data.message);
         }
     } catch (error) {
         console.error('Error loading extractions for training:', error);
-        trainingSelect.innerHTML = `<option value="">Error: ${error.message}</option>`;
+        if (trainingSelect) trainingSelect.innerHTML = `<option value="">Error: ${error.message}</option>`;
     }
 }
 
@@ -2363,4 +2728,35 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     `;
     document.head.appendChild(style);
+});
+
+// Training panel button
+document.getElementById('train-model-btn').addEventListener('click', () => {
+    console.log("Opening training panel");
+    
+    // First, open the panel
+    PanelManager.openPanel('training-panel', 'train-model-btn');
+    
+    // Now make sure the panel is completely rendered before trying to access elements
+    setTimeout(() => {
+        // Get elements with safety checks
+        const noTrainingExtractions = document.getElementById('no-training-extractions');
+        const trainingControls = document.getElementById('training-controls');
+        
+        // Make sure error messages are hidden initially
+        if (noTrainingExtractions) {
+            noTrainingExtractions.classList.add('hidden');
+        }
+        
+        // Make sure controls are visible
+        if (trainingControls) {
+            trainingControls.classList.remove('hidden');
+        }
+        
+        // Call loadTrainingExtractions to populate the panel
+        loadTrainingExtractions();
+        
+        // Check if we have models to display
+        loadModels();
+    }, 100); // Small delay to ensure the DOM is updated
 });
