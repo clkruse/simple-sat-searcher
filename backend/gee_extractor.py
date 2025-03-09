@@ -817,14 +817,21 @@ class GEEDataExtractor:
             logger.warning("No 'id' column found in points_gdf, generating placeholder IDs")
             point_ids = [f"point_{i}" for i in range(num_chips)]
         
+        # Ensure consistent data types for all variables
+        # Convert labels to strings to avoid serialization issues
+        labels_array = np.array([str(label) for label in labels])
+        lons_array = np.array(lons, dtype=np.float64)
+        lats_array = np.array(lats, dtype=np.float64)
+        point_ids_array = np.array(point_ids, dtype=str)
+        
         # Create xarray dataset
         ds = xr.Dataset(
             data_vars={
                 'chips': (('point', 'y', 'x', 'band'), chips_array),
-                'label': (('point'), labels),
-                'longitude': (('point'), lons),
-                'latitude': (('point'), lats),
-                'point_id': (('point'), point_ids)  # Add point_id as a data variable
+                'label': (('point'), labels_array),
+                'longitude': (('point'), lons_array),
+                'latitude': (('point'), lats_array),
+                'point_id': (('point'), point_ids_array)  # Add point_id as a data variable
             },
             coords={
                 'point': np.arange(num_chips),

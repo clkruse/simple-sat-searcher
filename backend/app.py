@@ -352,17 +352,48 @@ def cleanup_extracted_data(project_id, removed_point_ids):
                             print(f"Creating new dataset with {len(keep_indices)} points")
                             new_ds = ds.isel(point=keep_indices)
                             
+                            # Ensure label has a consistent data type
+                            if 'label' in new_ds:
+                                # Convert label to string if it's an object type
+                                if new_ds.label.dtype == 'O':
+                                    print(f"Converting label from {new_ds.label.dtype} to string type")
+                                    new_ds['label'] = new_ds.label.astype(str)
+                            
+                            # Check for other object dtypes that might cause issues
+                            for var_name, var in new_ds.variables.items():
+                                if var.dtype == 'O':
+                                    print(f"Warning: Variable '{var_name}' has object dtype which may cause serialization issues")
+                                    try:
+                                        # Try to convert to string
+                                        new_ds[var_name] = var.astype(str)
+                                        print(f"Converted '{var_name}' to string type")
+                                    except Exception as e:
+                                        print(f"Could not convert '{var_name}' to string: {e}")
+                            
                             # Save to a temporary file
                             temp_file = file_path + '.temp'
-                            new_ds.to_netcdf(temp_file)
-                            
-                            # Close the dataset
-                            new_ds.close()
-                            
-                            # Replace the original file
-                            os.replace(temp_file, file_path)
-                            
-                            print(f"Successfully removed data for {len(point_ids) - len(keep_indices)} points from {nc_file}")
+                            try:
+                                new_ds.to_netcdf(temp_file)
+                                
+                                # Close the dataset
+                                new_ds.close()
+                                
+                                # Replace the original file
+                                os.replace(temp_file, file_path)
+                                
+                                print(f"Successfully removed data for {len(point_ids) - len(keep_indices)} points from {nc_file}")
+                            except Exception as e:
+                                print(f"Error saving modified dataset: {e}")
+                                print(f"Dataset variables: {list(new_ds.variables.keys())}")
+                                print(f"Dataset dtypes: {[(name, var.dtype) for name, var in new_ds.variables.items()]}")
+                                new_ds.close()
+                                # Clean up temp file if it exists
+                                if os.path.exists(temp_file):
+                                    try:
+                                        os.remove(temp_file)
+                                    except:
+                                        pass
+                                raise
                         else:
                             print(f"No points to remove from {nc_file}")
                     else:
@@ -414,17 +445,48 @@ def cleanup_extracted_data(project_id, removed_point_ids):
                                     print(f"Creating new dataset with {len(keep_indices)} points")
                                     new_ds = ds.isel(point=keep_indices)
                                     
+                                    # Ensure label has a consistent data type
+                                    if 'label' in new_ds:
+                                        # Convert label to string if it's an object type
+                                        if new_ds.label.dtype == 'O':
+                                            print(f"Converting label from {new_ds.label.dtype} to string type")
+                                            new_ds['label'] = new_ds.label.astype(str)
+                                    
+                                    # Check for other object dtypes that might cause issues
+                                    for var_name, var in new_ds.variables.items():
+                                        if var.dtype == 'O':
+                                            print(f"Warning: Variable '{var_name}' has object dtype which may cause serialization issues")
+                                            try:
+                                                # Try to convert to string
+                                                new_ds[var_name] = var.astype(str)
+                                                print(f"Converted '{var_name}' to string type")
+                                            except Exception as e:
+                                                print(f"Could not convert '{var_name}' to string: {e}")
+                                    
                                     # Save to a temporary file
                                     temp_file = file_path + '.temp'
-                                    new_ds.to_netcdf(temp_file)
-                                    
-                                    # Close the dataset
-                                    new_ds.close()
-                                    
-                                    # Replace the original file
-                                    os.replace(temp_file, file_path)
-                                    
-                                    print(f"Successfully removed data for {len(ds_lons) - len(keep_indices)} points from {nc_file} using coordinate matching")
+                                    try:
+                                        new_ds.to_netcdf(temp_file)
+                                        
+                                        # Close the dataset
+                                        new_ds.close()
+                                        
+                                        # Replace the original file
+                                        os.replace(temp_file, file_path)
+                                        
+                                        print(f"Successfully removed data for {len(ds_lons) - len(keep_indices)} points from {nc_file} using coordinate matching")
+                                    except Exception as e:
+                                        print(f"Error saving modified dataset: {e}")
+                                        print(f"Dataset variables: {list(new_ds.variables.keys())}")
+                                        print(f"Dataset dtypes: {[(name, var.dtype) for name, var in new_ds.variables.items()]}")
+                                        new_ds.close()
+                                        # Clean up temp file if it exists
+                                        if os.path.exists(temp_file):
+                                            try:
+                                                os.remove(temp_file)
+                                            except:
+                                                pass
+                                        raise
                                 else:
                                     print(f"No points to remove from {nc_file} using coordinate matching")
                             except Exception as e:
