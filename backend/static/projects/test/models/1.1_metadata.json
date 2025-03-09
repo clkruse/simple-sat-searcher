@@ -1,0 +1,23 @@
+{
+  "model_name": "1.1",
+  "created": "2025-03-09 13:48:00",
+  "extraction_files": [
+    "S2_64px_extracted_data.nc"
+  ],
+  "input_shape": [
+    64,
+    64,
+    12
+  ],
+  "batch_size": 8,
+  "epochs": 64,
+  "test_split": 0.1,
+  "augmentation": true,
+  "final_metrics": {
+    "loss": 0.41183531284332275,
+    "acc": 0.8888888955116272,
+    "val_loss": 0.16184860467910767,
+    "val_acc": 1.0
+  },
+  "classification_report": "              precision    recall  f1-score   support\n\n    Negative       1.00      1.00      1.00         1\n    Positive       0.00      0.00      0.00         0\n\n    accuracy                           1.00         1\n   macro avg       0.50      0.50      0.50         1\nweighted avg       1.00      1.00      1.00         1\n"
+}
