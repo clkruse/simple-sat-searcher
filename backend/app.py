@@ -76,7 +76,7 @@ def api_info():
         "name": "Satellite Imagery Processing API",
         "version": "1.0.0",
         "endpoints": {
-            "projects": "/list_projects, /create_project, /delete_project, /export_points, /load_points",
+            "projects": "/list_projects, /create_project, /delete_project, /get_project_info, /export_points, /load_points",
             "extraction": "/extract_data, /list_extracted_data, /get_patch_visualization, /get_map_imagery",
             "training": "/train_model, /list_models",
             "deployment": "/deploy_model, /get_deployment_tiles"

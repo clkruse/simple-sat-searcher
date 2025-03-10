@@ -68,10 +68,11 @@ class ApiService {
   /**
    * Create a new project
    * @param {string} name - Project name
-   * @returns {Promise<Object>} - Project data
+   * @param {number} chipSize - Chip size in pixels
+   * @returns {Promise<Object>} - Project creation result
    */
-  async createProject(name) {
-    return this.post('create_project', { name });
+  async createProject(name, chipSize) {
+    return this.post('create_project', { name, chip_size: chipSize });
   }
   
   /**
@@ -80,6 +81,15 @@ class ApiService {
    */
   async listProjects() {
     return this.get('list_projects');
+  }
+  
+  /**
+   * Get project information
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Object>} - Project information
+   */
+  async getProjectInfo(projectId) {
+    return this.get('get_project_info', { project_id: projectId });
   }
   
   /**

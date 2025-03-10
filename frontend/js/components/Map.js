@@ -336,8 +336,7 @@ class Map extends EventEmitter {
       // Create the marker
       const marker = new mapboxgl.Marker({
         element: el,
-        anchor: 'center',
-        scale: 0.6
+        anchor: 'center'
       })
       .setLngLat([lon, lat])
       .addTo(this.mapInstance);
@@ -374,22 +373,6 @@ class Map extends EventEmitter {
       
       // Track the marker for later removal
       this.patchOverlays.push(marker);
-    });
-  }
-  
-  // Fit map to all patches
-  fitToPatches(patches) {
-    if (patches.length === 0) return;
-    
-    const bounds = new mapboxgl.LngLatBounds();
-    
-    patches.forEach(patch => {
-      bounds.extend([patch.longitude, patch.latitude]);
-    });
-    
-    this.mapInstance.fitBounds(bounds, {
-      padding: 100,
-      maxZoom: 15
     });
   }
   

@@ -588,9 +588,8 @@ def register_extraction_endpoints(app, socketio):
                                 [0.10, 0.60, 0.31, 1.0]   # dark green
                             ])
                             
-                            # Normalize NDVI values from [-1, 1] to [0, 1] for colormap indexing
-                            ndvi_norm = (ndvi + 1) / 2
-                            ndvi_norm = np.clip(ndvi_norm, 0, 1)
+                            # clip NDVI values from [0, 1] as negative ndvi values are atypical
+                            ndvi_norm = np.clip(ndvi, 0, 1)
                             
                             # Create RGB image by mapping NDVI values to colors
                             # Scale the normalized values to the colormap indices

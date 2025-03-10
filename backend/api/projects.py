@@ -93,6 +93,7 @@ def register_projects_endpoints(app, socketio):
             # Get the project name from the request
             data = request.json
             project_name = data.get('name', '').strip()
+            chip_size = data.get('chip_size', 64)  # Default to 64 if not provided
             
             if not project_name:
                 return jsonify({"success": False, "message": "Project name is required"}), 400
@@ -112,7 +113,8 @@ def register_projects_endpoints(app, socketio):
             project_info = {
                 'name': project_name,
                 'created': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'description': data.get('description', '')
+                'description': data.get('description', ''),
+                'chip_size': chip_size
             }
             
             with open(os.path.join(project_dir, 'project_info.json'), 'w') as f:
@@ -153,13 +155,41 @@ def register_projects_endpoints(app, socketio):
         except Exception as e:
             return jsonify({"success": False, "message": str(e)}), 500
 
+    @app.route('/get_project_info', methods=['GET'])
+    def get_project_info():
+        try:
+            # Get the project ID from the request
+            project_id = request.args.get('project_id', '')
+            
+            if not project_id:
+                return jsonify({"success": False, "message": "Project ID is required"}), 400
+            
+            # Check if project exists
+            project_dir = os.path.join(PROJECTS_DIR, project_id)
+            if not os.path.exists(project_dir):
+                return jsonify({"success": False, "message": f"Project '{project_id}' not found"}), 404
+            
+            # Read project info
+            project_info_path = os.path.join(project_dir, 'project_info.json')
+            if not os.path.exists(project_info_path):
+                return jsonify({"success": False, "message": f"Project info not found for '{project_id}'"}), 404
+            
+            with open(project_info_path, 'r') as f:
+                project_info = json.load(f)
+            
+            return jsonify(project_info)
+            
+        except Exception as e:
+            return jsonify({"success": False, "message": str(e)}), 500
+
     # Add more project-related endpoints here...
     
     # Return routes for documentation purposes
     documented_routes = {
         "list_projects": "GET /list_projects - List all projects",
         "create_project": "POST /create_project - Create a new project",
-        "delete_project": "POST /delete_project - Delete a project"
+        "delete_project": "POST /delete_project - Delete a project",
+        "get_project_info": "GET /get_project_info - Get project info"
     }
     
     return documented_routes

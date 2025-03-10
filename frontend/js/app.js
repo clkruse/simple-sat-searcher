@@ -221,18 +221,8 @@ class App {
     }
     
     initializeState() {
-      const currentProjectId = store.get('currentProjectId');
-      
-      if (currentProjectId) {
-        // Load project points
-        store.loadProjectPoints().then(() => {
-          // Open control panel
-          panelManager.openPanel('control-panel', 'point-tool-btn');
-        });
-      } else {
-        // Show project selection on first load
-        panelManager.openPanel('project-modal', 'project-selector-btn');
-      }
+      // Always show project selection on startup
+      panelManager.openPanel('project-modal', 'project-selector-btn');
     }
     
     // HANDLERS
@@ -248,7 +238,6 @@ class App {
       const collection = document.getElementById('collection-select').value;
       const startDate = document.getElementById('start-date').value;
       const endDate = document.getElementById('end-date').value;
-      const chipSize = parseInt(document.getElementById('chip-size').value);
       const clearThreshold = parseFloat(document.getElementById('clear-threshold').value);
       
       if (!startDate || !endDate) {
@@ -262,16 +251,26 @@ class App {
         progressContainer.classList.add('show');
       }
       
-      // Extract data
-      store.extractData({
-        collection,
-        start_date: startDate,
-        end_date: endDate,
-        chip_size: chipSize,
-        clear_threshold: clearThreshold
-      }).catch(error => {
-        notificationManager.error(`Error starting extraction: ${error.message}`);
-      });
+      // Get the project info to retrieve the chip size
+      const apiService = new ApiService();
+      apiService.getProjectInfo(currentProjectId)
+        .then(projectInfo => {
+          const chipSize = projectInfo.chip_size || 64; // Default to 64 if not found
+          
+          // Extract data
+          store.extractData({
+            collection,
+            start_date: startDate,
+            end_date: endDate,
+            chip_size: chipSize,
+            clear_threshold: clearThreshold
+          }).catch(error => {
+            notificationManager.error(`Error starting extraction: ${error.message}`);
+          });
+        })
+        .catch(error => {
+          notificationManager.error(`Error getting project info: ${error.message}`);
+        });
     }
     
     // Load visualization
@@ -313,9 +312,7 @@ class App {
             
             // Show info
             document.getElementById('visualization-info').classList.remove('hidden');
-            
-            // Fit map to all patches
-            map.fitToPatches(data.patches);
+
             
             // Show clear button
             document.getElementById('clear-visualization-btn').classList.remove('hidden');
@@ -349,8 +346,10 @@ class App {
         return;
       }
       
+      const chipSize = parseInt(document.getElementById('project-chip-size').value);
+      
       const apiService = new ApiService();
-      apiService.createProject(projectName)
+      apiService.createProject(projectName, chipSize)
         .then(data => {
           if (data.success) {
             // Select the new project
@@ -523,7 +522,7 @@ class App {
       
       if (progressBar && progressText) {
         progressBar.style.width = '0%';
-        progressText.textContent = 'Starting deployment...';
+        progressText.textContent = 'Deploying...';
       }
       
       // Show status
@@ -701,8 +700,8 @@ class App {
           legendContainer.innerHTML = `
             <div class="ndvi-legend"></div>
             <div class="ndvi-scale">
-              <span>-1</span>
               <span>0</span>
+              <span>0.5</span>
               <span>1</span>
             </div>
             <div class="legend-item">

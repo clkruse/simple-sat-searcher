@@ -624,7 +624,32 @@ body {
     padding-bottom: 15px;
     border-bottom: 1px solid #f0f0f0;
     display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.project-name-row {
+    display: flex;
     gap: 10px;
+    width: 100%;
+}
+
+.chip-size-row {
+    margin-left: 5px;
+    margin-bottom: 0px;
+    display: flex;
+    align-items: baseline;
+    width: auto;
+}
+
+.chip-size-row label {
+    margin-right: 10px;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.chip-size-row select {
+    width: auto;
 }
 
 #new-project-name {
@@ -781,8 +806,8 @@ body {
 
 /* Patch markers on map */
 .patch-marker {
-    width: 12px;
-    height: 12px;
+    width: 8px;
+    height: 8px;
     background-color: white;
     border-radius: 50%;
     box-shadow: 0 0 0 2px white;

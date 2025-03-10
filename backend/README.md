@@ -72,6 +72,7 @@ The server will start on port 5001 by default.
 - `GET /list_projects` - List all projects
 - `POST /create_project` - Create a new project
 - `POST /delete_project` - Delete a project
+- `GET /get_project_info` - Get project information
 - `POST /export_points` - Export points to a project
 - `GET /load_points` - Load points from a project
 

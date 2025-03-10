@@ -47,13 +47,13 @@ class Store extends EventEmitter {
   
   // Load state from localStorage
   loadPersistedState() {
-    const projectId = localStorage.getItem('currentProjectId');
-    const projectName = localStorage.getItem('currentProjectName');
+    // Don't load project from localStorage - always start with project selection
+    this.state.currentProjectId = null;
+    this.state.currentProjectName = null;
     
-    if (projectId) {
-      this.state.currentProjectId = projectId;
-      this.state.currentProjectName = projectName || 'Unnamed Project';
-    }
+    // Clear any stored project in localStorage
+    localStorage.removeItem('currentProjectId');
+    localStorage.removeItem('currentProjectName');
   }
   
   // Get state value
