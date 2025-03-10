@@ -30,9 +30,6 @@ def register_deployment_endpoints(app, socketio):
             end_date = data.get('end_date')
             pred_threshold = data.get('pred_threshold', 0.5)
             clear_threshold = data.get('clear_threshold', 0.75)
-            tile_padding = data.get('tile_padding', 24)
-            batch_size = data.get('batch_size', 500)
-            tries = data.get('tries', 2)
             
             if not all([project_id, model_name, region, start_date, end_date]):
                 return jsonify({
@@ -52,7 +49,7 @@ def register_deployment_endpoints(app, socketio):
             model = keras.models.load_model(model_path)
             
             # Create deployer instance
-            deployer = ModelDeployer(project_id)
+            deployer = ModelDeployer(project_id, chip_size=512)
             
             # Set up a custom log handler to capture and forward log messages
             class SocketIOLogHandler(logging.Handler):
@@ -82,9 +79,6 @@ def register_deployment_endpoints(app, socketio):
                 end_date=end_date,
                 pred_threshold=pred_threshold,
                 clear_threshold=clear_threshold,
-                tile_padding=tile_padding,
-                batch_size=batch_size,
-                tries=tries,
                 model_name=model_name,
                 progress_callback=lambda current, total, incremental_predictions=None, bounding_box=None: socketio.emit('deployment_progress', {
                     'project_id': project_id,
@@ -231,7 +225,7 @@ def register_deployment_endpoints(app, socketio):
             # Get parameters from query string
             project_id = request.args.get('project_id', '')
             region = json.loads(request.args.get('region', '{}'))
-            tile_size = int(request.args.get('tile_size', 576))
+            tile_size = 512
             
             if not project_id or not region:
                 return jsonify({"success": False, "message": "Project ID and region are required"}), 400

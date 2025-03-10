@@ -195,8 +195,8 @@ class ModelDeployer:
                 # Clip and scale the image to the tile geometry
                 clipped_image = self.composite.clipToBoundsAndScale(
                     geometry=tile_geom,
-                    width=self.chip_size + 2,  # Add padding
-                    height=self.chip_size + 2
+                    width=self.chip_size,
+                    height=self.chip_size
                 )
                 
                 # Get the data using computePixels with specific band IDs
@@ -320,7 +320,6 @@ class ModelDeployer:
 
     def make_predictions(self, model, region, start_date, end_date, 
                         pred_threshold=0.5, clear_threshold=0.75,
-                        tile_padding=24, batch_size=500, tries=2,
                         progress_callback=None, model_name=None):
         """Make predictions using the trained model.
         
@@ -331,9 +330,6 @@ class ModelDeployer:
             end_date: End date for satellite imagery
             pred_threshold: Threshold for positive predictions
             clear_threshold: Threshold for cloud-free imagery
-            tile_padding: Padding around tiles in pixels
-            batch_size: Number of tiles to process in parallel
-            tries: Number of retries for Earth Engine requests
             progress_callback: Callback function for progress updates
             model_name: Name of the model (from filename)
         """
@@ -448,12 +444,12 @@ class ModelDeployer:
             # Process tiles in parallel using batches
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 # Process in batches to avoid overwhelming Earth Engine
-                for batch_start in range(0, len(tile_infos), batch_size):
-                    batch_end = min(batch_start + batch_size, len(tile_infos))
+                for batch_start in range(0, len(tile_infos), 500):
+                    batch_end = min(batch_start + 500, len(tile_infos))
                     batch = tile_infos[batch_start:batch_end]
                     
                     # Submit batch of tiles for processing
-                    futures = [executor.submit(self._process_tile, tile_info, model, pred_threshold, tries) 
+                    futures = [executor.submit(self._process_tile, tile_info, model, pred_threshold, 2) 
                                for tile_info in batch]
                     
                     # Collect results as they complete

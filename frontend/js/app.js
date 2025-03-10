@@ -549,10 +549,6 @@ class App {
     const endDate = document.getElementById('deployment-end-date').value;
     const predThreshold = parseFloat(document.getElementById('pred-threshold').value);
     const clearThreshold = parseFloat(document.getElementById('clear-threshold').value);
-    const tileSize = parseInt(document.getElementById('tile-size').value);
-    const tilePadding = parseInt(document.getElementById('tile-padding').value);
-    const batchSize = parseInt(document.getElementById('batch-size').value);
-    const tries = parseInt(document.getElementById('tries').value);
     
     if (!modelName) {
       notificationManager.warning('Please select a model to deploy');
@@ -601,9 +597,9 @@ class App {
       end_date: endDate,
       pred_threshold: predThreshold,
       clear_threshold: clearThreshold,
-      tile_size: tileSize,
-      tile_padding: tilePadding,
-      batch_size: batchSize,
+      tile_size: 512,
+      batch_size: 500,
+      tries: 2,
       region: {
         type: 'Polygon',
         coordinates: [[
@@ -613,8 +609,7 @@ class App {
           [bounds.getWest(), bounds.getSouth()],
           [bounds.getWest(), bounds.getNorth()]
         ]]
-      },
-      tries: tries
+      }
     }).catch(error => {
       notificationManager.error(`Error starting deployment: ${error.message}`);
       document.getElementById('deploy-btn').disabled = false;
