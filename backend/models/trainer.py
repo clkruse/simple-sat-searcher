@@ -1,3 +1,6 @@
+"""
+Model training functionality for satellite imagery classification
+"""
 import os
 import logging
 import datetime
@@ -11,18 +14,25 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 import pickle
 
+from config import PROJECTS_DIR
+
 logger = logging.getLogger(__name__)
 
 class ModelTrainer:
-    def __init__(self, project_id, project_dir):
+    def __init__(self, project_id, project_dir=None):
         """Initialize the model trainer.
         
         Args:
             project_id (str): The project ID
-            project_dir (str): Path to the project directory
+            project_dir (str, optional): Path to the project directory. If None, uses PROJECTS_DIR.
         """
         self.project_id = project_id
+        
+        # Use provided project_dir or construct from PROJECTS_DIR
+        if project_dir is None:
+            project_dir = os.path.join(PROJECTS_DIR, project_id)
         self.project_dir = project_dir
+        
         self.models_dir = os.path.join(project_dir, "models")
         os.makedirs(self.models_dir, exist_ok=True)
         
@@ -229,4 +239,4 @@ class ModelTrainer:
             return {
                 "success": False,
                 "message": str(e)
-            } 
+            }

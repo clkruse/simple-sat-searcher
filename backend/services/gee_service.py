@@ -1,3 +1,9 @@
+"""
+Earth Engine data extraction service.
+This module handles interactions with the Google Earth Engine API 
+for extracting satellite imagery data.
+"""
+
 import os
 import logging
 import datetime
@@ -11,21 +17,12 @@ import numpy as np
 import xarray as xr
 from shapely.geometry import Point
 
+from config import PROJECTS_DIR, BUFFER_SIZES, BAND_IDS, EE_PROJECT
+
 # Initialize logger
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
-# Constants
-BUFFER_SIZES = {
-    'S2': 10,  # 10m resolution for Sentinel-2
-    'S1': 10   # Standardized to 10m for Sentinel-1
-}
-
-BAND_IDS = {
-    "S1": ["VV", "VH"],  
-    "S2": ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8A", "B8", "B9", "B11", "B12"]
-}
-
+# Standalone function for multiprocessing
 # Add this new standalone function for multiprocessing
 def process_point_for_multiprocessing(args):
     """
@@ -432,7 +429,7 @@ class GEEDataExtractor:
             tuple: (output_file, metadata_file) paths
         """
         # Get the project directory
-        project_dir = os.path.join("projects", self.project_id)
+        project_dir = os.path.join(PROJECTS_DIR, self.project_id)
         if not os.path.exists(project_dir):
             raise FileNotFoundError(f"Project directory {project_dir} not found")
         

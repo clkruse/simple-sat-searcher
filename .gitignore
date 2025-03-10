@@ -154,4 +154,4 @@ cython_debug/
 
 # Other
 .DS_Store
-backend/projects/*
+backend/static/projects/*

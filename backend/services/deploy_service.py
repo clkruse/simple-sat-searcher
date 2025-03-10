@@ -1,3 +1,7 @@
+"""
+Model deployment service for satellite imagery classification.
+This module handles deploying trained models on satellite imagery.
+"""
 import ee
 import os
 import json
@@ -9,24 +13,7 @@ import datetime
 import concurrent.futures
 import traceback
 
-# Constants
-PROJECTS_DIR = "projects"
-BUFFER_SIZES = {
-    'S2': 10,  # 10m resolution for Sentinel-2
-    'S1': 10   # 10m resolution for Sentinel-1
-}
-
-# Band IDs for different collections
-BAND_IDS = {
-    "S1": ["VV", "VH"],  
-    "S2": ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8A", "B8", "B9", "B11", "B12"]
-}
-
-# Normalization constants for Sentinel-2
-S2_MEANS = [1405.8951, 1175.9235, 1172.4902, 1091.9574, 1321.1304, 2181.5363, 
-            2670.2361, 2491.2354, 2948.3846, 420.1552, 2028.0025, 1076.2417]
-S2_DEVIATIONS = [291.9438, 398.5558, 504.557, 748.6153, 651.8549, 730.9811, 
-                913.6062, 893.9428, 1055.297, 225.2153, 970.1915, 752.8637]
+from config import PROJECTS_DIR, BUFFER_SIZES, BAND_IDS, EE_PROJECT
 
 class ModelDeployer:
     def __init__(self, project_id, collection='S2', chip_size=576, ee_project="earth-engine-ck"):
@@ -509,4 +496,4 @@ class ModelDeployer:
             self.logger.error(f"Exception details: {traceback.format_exc()}")
             # Return empty GeoDataFrame in case of error to avoid breaking the UI
             empty_gdf = gpd.GeoDataFrame(columns=['geometry', 'confidence'], geometry='geometry', crs="EPSG:4326")
-            return empty_gdf 
+            return empty_gdf
