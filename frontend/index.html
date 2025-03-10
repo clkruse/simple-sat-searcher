@@ -23,9 +23,6 @@
         <div class="sidebar-item" id="clear-btn" title="Clear Points">
             <i class="fas fa-trash"></i>
         </div>
-        <div class="sidebar-item" id="extract-data-btn" title="Extract Data">
-            <i class="fas fa-satellite"></i>
-        </div>
         <div class="sidebar-item" id="visualize-data-btn" title="Visualize Data">
             <i class="fas fa-image"></i>
         </div>
@@ -61,64 +58,39 @@
                 <p><i class="fas fa-info-circle"></i> Left-click to add positive points. Right-click to add negative points. Use the "Clear Points" tool to remove points.</p>
             </div>
             
-            <!-- Export button removed as points are now exported automatically -->
-        </div>
-    </div>
-    
-    <!-- Extract data panel -->
-    <div class="panel" id="extract-panel">
-        <div class="panel-header">
-            <span>Extract Satellite Data</span>
-            <div class="header-controls">
-                <button class="close-btn" id="close-extract-panel"><i class="fas fa-times"></i></button>
+            <div class="form-group">
+                <label for="control-collection">Satellite Collection</label>
+                <select id="control-collection">
+                    <option value="S2">Sentinel-2</option>
+                    <option value="S1">Sentinel-1</option>
+                </select>
             </div>
-        </div>
-        <div class="panel-body">
-            <form id="extract-form">
-                <div class="form-group">
-                    <label for="collection-select">Satellite Collection</label>
-                    <select id="collection-select">
-                        <option value="S2">Sentinel-2</option>
-                        <option value="S1">Sentinel-1</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="start-date">Start Date</label>
-                    <input type="date" id="start-date" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="end-date">End Date</label>
-                    <input type="date" id="end-date" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="clear-threshold">Clear Threshold (S2 only)</label>
-                    <div class="range-container">
-                        <input type="range" id="clear-threshold" min="0" max="1" step="0.05" value="0.75">
-                        <span id="threshold-value">0.75</span>
-                    </div>
-                </div>
-                
-                <div id="extraction-progress-container" class="progress-container">
-                    <div class="progress-bar">
-                        <div id="extraction-progress" class="progress-fill"></div>
-                    </div>
-                    <div id="extraction-progress-text" class="progress-text">Ready to extract</div>
-                </div>
-                
-                <button type="button" id="extract-btn" class="primary-btn">
-                    <i class="fas fa-satellite"></i> Extract Data
-                </button>
-            </form>
             
-            <div id="extraction-results" class="hidden">
-                <h3>Previous Extractions</h3>
-                <div id="extractions-list" class="extractions-list">
-                    <!-- Extractions will be loaded here -->
-                    <div class="loading">Loading extractions...</div>
+            <div class="form-group">
+                <label for="control-start-date">Start Date</label>
+                <input type="date" id="control-start-date" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="control-end-date">End Date</label>
+                <input type="date" id="control-end-date" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="control-clear-threshold">Clear Threshold (S2 only)</label>
+                <div class="range-container">
+                    <input type="range" id="control-clear-threshold" min="0" max="1" step="0.05" value="0.75">
+                    <span id="control-threshold-value">0.75</span>
                 </div>
+            </div>
+            
+            <div class="button-group">
+                <button type="button" class="primary-btn" id="control-load-imagery-btn">
+                    <i class="fas fa-globe"></i> Display Imagery
+                </button>
+                <button type="button" class="secondary-btn" id="control-remove-imagery-btn">
+                    <i class="fas fa-eye-slash"></i> Remove Imagery
+                </button>
             </div>
         </div>
     </div>

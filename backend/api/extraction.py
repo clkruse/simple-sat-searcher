@@ -189,10 +189,10 @@ def register_extraction_endpoints(app, socketio):
             data = request.json
             project_id = data.get('project_id', '')
             collection = data.get('collection', 'S2')
-            start_date = data.get('start_date', '')
-            end_date = data.get('end_date', '')
+            start_date = data.get('start_date', '')  # Fallback
+            end_date = data.get('end_date', '')  # Fallback
             chip_size = data.get('chip_size', 64)
-            clear_threshold = data.get('clear_threshold', 0.75)
+            clear_threshold = data.get('clear_threshold', 0.75)  # Fallback
             num_workers = data.get('num_workers', None)  # Get number of workers from request
             
             # If num_workers is not specified, use a conservative default
@@ -205,82 +205,143 @@ def register_extraction_endpoints(app, socketio):
             if not project_id:
                 return jsonify({"success": False, "message": "Project ID is required"}), 400
             
-            if not start_date or not end_date:
-                return jsonify({"success": False, "message": "Start date and end date are required"}), 400
-            
             # Check if project exists
             project_dir = os.path.join(PROJECTS_DIR, project_id)
             if not os.path.exists(project_dir) or not os.path.isdir(project_dir):
                 return jsonify({"success": False, "message": f"Project '{project_id}' not found"}), 404
             
-            # Check if points exist
-            points_file = os.path.join(project_dir, 'points.json')
-            geojson_files = [f for f in os.listdir(project_dir) if f.endswith('.geojson')]
-            
-            if not os.path.exists(points_file) and not geojson_files:
+            # Check if points exist and load them
+            points_geojson_file = os.path.join(project_dir, 'points.geojson')
+            if not os.path.exists(points_geojson_file):
                 return jsonify({"success": False, "message": "No points found in project. Please add points first."}), 400
             
-            # Initialize GEE data extractor
-            try:
-                extractor = GEEDataExtractor(
-                    project_id=project_id,
-                    collection=collection,
-                    chip_size=chip_size
-                )
-            except Exception as e:
-                logger.error(f"Error initializing GEE extractor: {str(e)}")
-                return jsonify({"success": False, "message": f"Error initializing Earth Engine: {str(e)}"}), 500
+            # Check if data file already exists
+            extracted_dir = os.path.join(project_dir, "extracted_data")
+            os.makedirs(extracted_dir, exist_ok=True)
+            standard_data_file = os.path.join(extracted_dir, f"{collection}_{chip_size}px_extracted_data.nc")
+            standard_metadata_file = os.path.join(extracted_dir, f"{collection}_{chip_size}px_metadata.json")
             
-            # Create a progress callback function
-            def progress_callback(current, total):
-                progress = (current / total) * 100
-                socketio.emit('extraction_progress', {
-                    'project_id': project_id,
-                    'progress': progress,
-                    'current': current,
-                    'total': total
-                })
+            # Load the points from the GeoJSON file to ensure time parameters are preserved
+            with open(points_geojson_file, 'r') as f:
+                points_geojson = json.load(f)
             
-            # Extract data with progress updates
-            try:
-                output_file, metadata_file = extractor.extract_chips_for_project(
-                    start_date=start_date,
-                    end_date=end_date,
-                    clear_threshold=clear_threshold,
-                    progress_callback=progress_callback,
-                    num_workers=num_workers  # Pass number of workers parameter
-                )
-            except Exception as e:
-                logger.error(f"Error during extraction process: {str(e)}")
-                error_message = f"Error during extraction: {str(e)}"
-                socketio.emit('extraction_error', {
-                    'project_id': project_id,
-                    'error': error_message,
-                    'error_type': type(e).__name__
-                })
-                return jsonify({"success": False, "message": error_message}), 500
+            # Make sure all points have their time parameters
+            for feature in points_geojson.get('features', []):
+                properties = feature.get('properties', {})
+                point_start_date = properties.get('start_date', start_date)
+                point_end_date = properties.get('end_date', end_date)
+                point_clear_threshold = float(properties.get('clear_threshold', clear_threshold))
+                
+                # Add or update time parameters in feature properties
+                feature['properties']['start_date'] = point_start_date
+                feature['properties']['end_date'] = point_end_date
+                feature['properties']['clear_threshold'] = point_clear_threshold
             
-            # Read metadata
-            try:
-                with open(metadata_file, 'r') as f:
-                    metadata = json.load(f)
-            except Exception as e:
-                logger.error(f"Error reading metadata file: {str(e)}")
-                return jsonify({"success": False, "message": f"Error reading metadata: {str(e)}"}), 500
+            # Save the updated points GeoJSON back to disk
+            with open(points_geojson_file, 'w') as f:
+                json.dump(points_geojson, f, indent=2)
             
-            # Send completion message
-            socketio.emit('extraction_complete', {
-                'project_id': project_id,
-                'output_file': os.path.basename(output_file),
-                'metadata': metadata
-            })
+            # Check if all points have already been extracted
+            all_points_extracted = False
             
-            return jsonify({
-                "success": True,
-                "message": f"Successfully extracted {metadata['num_chips']} chips",
-                "output_file": os.path.basename(output_file),
-                "metadata": metadata
-            })
+            if os.path.exists(standard_data_file):
+                try:
+                    # Load existing dataset
+                    import xarray as xr
+                    existing_ds = xr.open_dataset(standard_data_file)
+                    
+                    # Get point IDs from features
+                    feature_ids = set(str(feature.get('properties', {}).get('id', '')) 
+                                    for feature in points_geojson.get('features', []))
+                    feature_ids = {id for id in feature_ids if id}  # Remove empty IDs
+                    
+                    # Get point IDs from dataset
+                    dataset_ids = set(pid.item() for pid in existing_ds.point_id.values)
+                    dataset_ids = {id for id in dataset_ids if id}  # Remove empty IDs
+                    
+                    logger.info(f"Found {len(feature_ids)} points in GeoJSON and {len(dataset_ids)} points in dataset")
+                    
+                    # Check if all points are already in the dataset
+                    missing_ids = feature_ids - dataset_ids
+                    
+                    if not missing_ids:
+                        logger.info("All points have already been extracted")
+                        all_points_extracted = True
+                        
+                        # Load metadata
+                        with open(standard_metadata_file, 'r') as f:
+                            metadata = json.load(f)
+                        
+                        return jsonify({
+                            "success": True,
+                            "message": f"All {len(feature_ids)} points already have data extracted",
+                            "output_file": os.path.basename(standard_data_file),
+                            "metadata": metadata
+                        })
+                    
+                    logger.info(f"Found {len(missing_ids)} points that need extraction")
+                    
+                except Exception as e:
+                    logger.error(f"Error checking existing dataset: {str(e)}")
+            
+            # If we got here, we still need to extract some points
+            # Extract data only if needed
+            if not all_points_extracted:
+                # Create a progress callback function
+                def progress_callback(current, total):
+                    progress = (current / total) * 100
+                    socketio.emit('extraction_progress', {
+                        'project_id': project_id,
+                        'progress': progress,
+                        'current': current,
+                        'total': total
+                    })
+                
+                try:
+                    # Initialize GEE data extractor
+                    extractor = GEEDataExtractor(
+                        project_id=project_id,
+                        collection=collection,
+                        chip_size=chip_size
+                    )
+                    
+                    # Extract all data at once using the updated method that handles
+                    # point-specific time parameters
+                    output_file, metadata_file = extractor.extract_chips_for_project(
+                        start_date=start_date,  # Global fallback
+                        end_date=end_date,  # Global fallback
+                        clear_threshold=clear_threshold,  # Global fallback
+                        progress_callback=progress_callback,
+                        num_workers=1  # Use single process to avoid multiprocessing issues
+                    )
+                    
+                    # Load metadata
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                    
+                    # Emit a completion event
+                    socketio.emit('extraction_complete', {
+                        'project_id': project_id,
+                        'output_file': os.path.basename(output_file),
+                        'metadata': metadata
+                    })
+                    
+                    return jsonify({
+                        "success": True,
+                        "message": f"Successfully extracted {metadata.get('num_chips', 0)} chips",
+                        "output_file": os.path.basename(output_file),
+                        "metadata": metadata
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error during extraction process: {str(e)}")
+                    error_message = f"Error during extraction: {str(e)}"
+                    socketio.emit('extraction_error', {
+                        'project_id': project_id,
+                        'error': error_message,
+                        'error_type': type(e).__name__
+                    })
+                    return jsonify({"success": False, "message": error_message}), 500
             
         except Exception as e:
             error_message = f"Error extracting data: {str(e)}"
@@ -448,8 +509,9 @@ def register_extraction_endpoints(app, socketio):
             extraction_file = request.args.get('file', '')
             visualization_type = request.args.get('vis_type', 'true_color')
             check_only = request.args.get('check_only', 'false').lower() == 'true'
+            point_id = request.args.get('point_id', '')
             
-            logger.info(f"get_patch_visualization called: project={project_id}, file={extraction_file}, type={visualization_type}, check_only={check_only}")
+            logger.info(f"get_patch_visualization called: project={project_id}, file={extraction_file}, type={visualization_type}, check_only={check_only}, point_id={point_id}")
             
             if not project_id:
                 return jsonify({"success": False, "message": "Project ID is required"}), 400
@@ -514,6 +576,7 @@ def register_extraction_endpoints(app, socketio):
             latitudes = ds.latitude.values
             labels = ds.label.values
             bands = ds.band.values.tolist()
+            point_ids = ds.point_id.values.tolist() if 'point_id' in ds else [str(i) for i in range(len(longitudes))]
             
             # Create visualization data for each patch
             for i in range(len(longitudes)):
@@ -522,6 +585,11 @@ def register_extraction_endpoints(app, socketio):
                 lon = float(longitudes[i])  # Convert to Python float
                 lat = float(latitudes[i])   # Convert to Python float
                 label = str(labels[i])      # Convert to Python string
+                current_point_id = str(point_ids[i])  # Convert to Python string
+                
+                # If point_id is specified, only process that specific point
+                if point_id and current_point_id != point_id:
+                    continue
                 
                 # Create visualization based on the collection and requested type
                 img_data = None
@@ -753,6 +821,171 @@ def register_extraction_endpoints(app, socketio):
             logger.error(f"Error retrieving map imagery: {str(e)}")
             return jsonify({"success": False, "message": str(e)}), 500
 
+    @app.route('/extract_point_data', methods=['POST'])
+    def extract_point_data():
+        """Extract data for a single point right after it's added"""
+        project_id = None
+        try:
+            # Get parameters from the request
+            data = request.json
+            project_id = data.get('project_id', '')
+            point_feature = data.get('point', {})
+            collection = data.get('collection', 'S2')
+            chip_size = data.get('chip_size', 64)
+            
+            # Validate inputs
+            if not project_id:
+                return jsonify({"success": False, "message": "Project ID is required"}), 400
+                
+            if not point_feature:
+                return jsonify({"success": False, "message": "Point data is required"}), 400
+            
+            # Check if project exists
+            project_dir = os.path.join(PROJECTS_DIR, project_id)
+            if not os.path.exists(project_dir) or not os.path.isdir(project_dir):
+                return jsonify({"success": False, "message": f"Project '{project_id}' not found"}), 404
+            
+            # Create output directory for extracted data
+            output_dir = os.path.join(project_dir, "extracted_data")
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Standard filenames for consistent data storage
+            standard_data_file = os.path.join(output_dir, f"{collection}_{chip_size}px_extracted_data.nc")
+            standard_metadata_file = os.path.join(output_dir, f"{collection}_{chip_size}px_metadata.json")
+            
+            # Get parameters from point
+            point_properties = point_feature.get('properties', {})
+            point_coords = point_feature.get('geometry', {}).get('coordinates', [0, 0])
+            
+            start_date = point_properties.get('start_date', '')
+            end_date = point_properties.get('end_date', '')
+            clear_threshold = float(point_properties.get('clear_threshold', 0.75))
+            point_class = point_properties.get('class', 'unknown')
+            point_id = str(point_properties.get('id', ''))
+            
+            # Initialize Earth Engine extractor
+            try:
+                extractor = GEEDataExtractor(
+                    project_id=project_id,
+                    collection=collection,
+                    chip_size=chip_size
+                )
+            except Exception as e:
+                logger.error(f"Error initializing GEE extractor: {str(e)}")
+                return jsonify({"success": False, "message": f"Error initializing Earth Engine: {str(e)}"}), 500
+            
+            # Create a Point GeoDataFrame with just this point
+            from shapely.geometry import Point
+            import geopandas as gpd
+            import pandas as pd
+            
+            point_geometry = Point(point_coords[0], point_coords[1])
+            point_gdf = gpd.GeoDataFrame(
+                geometry=[point_geometry],
+                data={
+                    'class': [point_class],
+                    'id': [point_id],
+                    'start_date': [start_date],
+                    'end_date': [end_date],
+                    'clear_threshold': [clear_threshold]
+                },
+                crs="EPSG:4326"
+            )
+            
+            # Extract data for this single point
+            try:
+                # Create image collection
+                extractor.create_image_collection(start_date, end_date, clear_threshold)
+                
+                # Extract chip
+                chip = extractor.extract_chip(point_gdf)
+                
+                if chip is None:
+                    return jsonify({
+                        "success": False, 
+                        "message": f"Failed to extract chip for point at {point_coords}"
+                    }), 500
+                
+                # Create a small dataset with just this point
+                chips_array = np.expand_dims(chip, axis=0)  # Add batch dimension
+                labels = [point_class]
+                
+                # Check if we have an existing dataset to append to
+                if os.path.exists(standard_data_file):
+                    try:
+                        # Open existing dataset
+                        existing_ds = xr.open_dataset(standard_data_file)
+                        
+                        # Create new dataset for this point
+                        new_ds = extractor._create_xarray_dataset(chips_array, labels, point_gdf, start_date, end_date)
+                        
+                        # Concatenate with existing dataset
+                        combined_ds = xr.concat([existing_ds, new_ds], dim='point')
+                        
+                        # Reset the point index to ensure it's sequential
+                        point_indices = np.arange(len(combined_ds.point))
+                        combined_ds = combined_ds.assign_coords(point=point_indices)
+                        
+                        # Close existing dataset
+                        existing_ds.close()
+                        
+                        # Save combined dataset
+                        combined_ds.to_netcdf(standard_data_file)
+                        
+                        # Update metadata
+                        metadata = {
+                            'collection': collection,
+                            'chip_size': chip_size,
+                            'num_chips': len(combined_ds.point),
+                            'last_updated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        
+                        with open(standard_metadata_file, 'w') as f:
+                            json.dump(metadata, f, indent=2)
+                        
+                        logger.info(f"Added point {point_id} to existing dataset, now has {len(combined_ds.point)} points")
+                        
+                    except Exception as e:
+                        logger.error(f"Error appending to existing dataset: {str(e)}")
+                        return jsonify({"success": False, "message": f"Error appending to dataset: {str(e)}"}), 500
+                        
+                else:
+                    # Create a new dataset with just this point
+                    new_ds = extractor._create_xarray_dataset(chips_array, labels, point_gdf, start_date, end_date)
+                    
+                    # Save the new dataset
+                    new_ds.to_netcdf(standard_data_file)
+                    
+                    # Create metadata
+                    metadata = {
+                        'collection': collection,
+                        'chip_size': chip_size,
+                        'num_chips': 1,
+                        'extraction_time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'last_updated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    
+                    with open(standard_metadata_file, 'w') as f:
+                        json.dump(metadata, f, indent=2)
+                    
+                    logger.info(f"Created new dataset with point {point_id}")
+                
+                # Return success
+                return jsonify({
+                    "success": True,
+                    "message": "Data extracted successfully for point",
+                    "point_id": point_id
+                })
+                
+            except Exception as e:
+                logger.error(f"Error extracting data for point: {str(e)}")
+                return jsonify({"success": False, "message": f"Error extracting data: {str(e)}"}), 500
+        
+        except Exception as e:
+            error_message = f"Error in extract_point_data: {str(e)}"
+            logger.error(error_message)
+            return jsonify({"success": False, "message": error_message}), 500
+
     # Helper function for cleanup_extracted_data
     def cleanup_extracted_data(project_id, removed_point_ids):
         """
@@ -904,7 +1137,8 @@ def register_extraction_endpoints(app, socketio):
         "list_extracted_data": "GET /list_extracted_data - List extracted data for a project",
         "get_patch_visualization": "GET /get_patch_visualization - Get visualization for extracted data",
         "get_map_imagery": "GET /get_map_imagery - Get map imagery for a region",
-        "check_file_exists": "GET /check_file_exists - Check if a file exists"
+        "check_file_exists": "GET /check_file_exists - Check if a file exists",
+        "extract_point_data": "POST /extract_point_data - Extract data for a single point right after it's added"
     }
     
     return documented_routes

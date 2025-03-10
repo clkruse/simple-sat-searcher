@@ -11,10 +11,6 @@ export const config = {
         buttonId: 'point-tool-btn',
         title: 'Label Points'
       },
-      'extract-panel': {
-        buttonId: 'extract-data-btn',
-        title: 'Extract Data'
-      },
       'visualization-panel': {
         buttonId: 'visualize-data-btn',
         title: 'Visualize Data'

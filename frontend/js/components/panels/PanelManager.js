@@ -4,6 +4,7 @@ import { config } from '../../config.js';
 import { store } from '../../state/Store.js';
 import { notificationManager } from '../Notification.js';
 import { formatDate } from '../../utils/formatters.js';
+import { map } from '../Map.js';
 
 class PanelManager extends EventEmitter {
   constructor() {
@@ -169,10 +170,6 @@ class PanelManager extends EventEmitter {
         this.initializeControlPanel();
         break;
         
-      case 'extract-panel':
-        this.initializeExtractPanel();
-        break;
-        
       case 'visualization-panel':
         this.initializeVisualizationPanel();
         break;
@@ -201,16 +198,42 @@ class PanelManager extends EventEmitter {
     
     // Update point counts
     this.updatePointCountsDisplay(store.get('pointCounts'));
-  }
-  
-  initializeExtractPanel() {
-    // Set default dates
-    this.setupDateRange('start-date', 'end-date', 30);
     
-    // Load previous extractions
-    store.loadExtractions().then(extractions => {
-      this.updateExtractionsList(extractions);
-    });
+    // Set default dates
+    this.setupDateRange('control-start-date', 'control-end-date', 30);
+    
+    // If imagery panel has dates set, copy those values
+    const imageryStartDate = document.getElementById('imagery-start-date');
+    const imageryEndDate = document.getElementById('imagery-end-date');
+    const imageryThreshold = document.getElementById('imagery-clear-threshold');
+    
+    if (imageryStartDate && imageryEndDate && imageryThreshold) {
+      const controlStartDate = document.getElementById('control-start-date');
+      const controlEndDate = document.getElementById('control-end-date');
+      const controlThreshold = document.getElementById('control-clear-threshold');
+      
+      if (controlStartDate && imageryStartDate.value) {
+        controlStartDate.value = imageryStartDate.value;
+      }
+      
+      if (controlEndDate && imageryEndDate.value) {
+        controlEndDate.value = imageryEndDate.value;
+      }
+      
+      if (controlThreshold && imageryThreshold.value) {
+        controlThreshold.value = imageryThreshold.value;
+        document.getElementById('control-threshold-value').textContent = imageryThreshold.value;
+      }
+    }
+    
+    // Visualize all point patches when opening the Label Data panel
+    const currentProjectId = store.get('currentProjectId');
+    if (currentProjectId) {
+      // Use a small delay to ensure the panel is fully initialized
+      setTimeout(() => {
+        map.visualizeAllPointPatches(currentProjectId, true);
+      }, 300);
+    }
   }
   
   initializeVisualizationPanel() {
@@ -252,53 +275,6 @@ class PanelManager extends EventEmitter {
   initializeMapImageryPanel() {
     // Set default dates
     this.setupDateRange('imagery-start-date', 'imagery-end-date', 30);
-  }
-  
-  // Helper method to update extractions list
-  updateExtractionsList(extractions) {
-    const extractionsList = document.getElementById('extractions-list');
-    const extractionResults = document.getElementById('extraction-results');
-    
-    if (!extractionsList) return;
-    
-    if (!extractions || extractions.length === 0) {
-      extractionsList.innerHTML = '<div class="loading">No extractions found for this project.</div>';
-      if (extractionResults) extractionResults.classList.add('hidden');
-      return;
-    }
-    
-    extractionsList.innerHTML = '';
-    extractions.forEach(extraction => {
-      const item = document.createElement('div');
-      item.className = 'extraction-item';
-      
-      // Format the date for display
-      const extractionDate = new Date(extraction.created);
-      const formattedDate = extractionDate.toLocaleDateString() + ' ' + 
-                           extractionDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      
-      item.innerHTML = `
-        <div class="extraction-item-header">
-          <div class="extraction-title">${extraction.collection} Extraction</div>
-          <div class="extraction-date">${formattedDate}</div>
-        </div>
-        <div class="extraction-details">
-          <p>Date Range: ${extraction.start_date || 'Unknown'} to ${extraction.end_date || 'Unknown'}</p>
-          <p>Chips: ${extraction.num_chips || 0} ${extraction.chip_size ? `(${extraction.chip_size}×${extraction.chip_size} px)` : ''}</p>
-          <p>File Size: ${extraction.file_size_mb} MB</p>
-        </div>
-        <div class="extraction-tags">
-          <span class="extraction-tag">${extraction.collection}</span>
-          <span class="extraction-tag">${extraction.bands ? extraction.bands.length : 'Unknown'} bands</span>
-          <span class="extraction-tag">${extraction.chip_size ? extraction.chip_size : 'Unknown'}px</span>
-        </div>
-      `;
-      
-      extractionsList.appendChild(item);
-    });
-    
-    // Show the extractions section
-    if (extractionResults) extractionResults.classList.remove('hidden');
   }
   
   // Helper method to update visualization extractions

@@ -139,14 +139,22 @@ class ApiService {
    * @param {string} projectId - Project ID
    * @param {string} file - Extraction file
    * @param {string} visType - Visualization type
+   * @param {string} pointId - Optional specific point ID to visualize
    * @returns {Promise<Object>} - Visualization data
    */
-  async getPatchVisualization(projectId, file, visType) {
-    return this.get('get_patch_visualization', { 
+  async getPatchVisualization(projectId, file, visType, pointId) {
+    const params = { 
       project_id: projectId, 
       file, 
       vis_type: visType 
-    });
+    };
+    
+    // Add point ID if provided
+    if (pointId) {
+      params.point_id = pointId;
+    }
+    
+    return this.get('get_patch_visualization', params);
   }
   
   // TRAINING ENDPOINTS
@@ -189,6 +197,15 @@ class ApiService {
    */
   async getMapImagery(options) {
     return this.get('get_map_imagery', options);
+  }
+  
+  /**
+   * Extract data for a single point
+   * @param {Object} data - Point extraction data including project_id and point feature
+   * @returns {Promise<Object>} - Response from the server
+   */
+  async extractPointData(data) {
+    return this.post('extract_point_data', data);
   }
 }
 

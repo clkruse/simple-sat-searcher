@@ -1220,3 +1220,18 @@ body {
         box-shadow: 0 0 0 0 rgba(231, 76, 60, 0);
     }
 }
+
+.info-text {
+    background-color: #f8f9fa;
+    border-left: 4px solid #17a2b8;
+    padding: 10px 15px;
+    margin: 10px 0;
+    font-size: 0.9rem;
+    color: #495057;
+    border-radius: 0 4px 4px 0;
+}
+
+.info-text i {
+    color: #17a2b8;
+    margin-right: 8px;
+}

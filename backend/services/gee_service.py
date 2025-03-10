@@ -22,104 +22,104 @@ from config import PROJECTS_DIR, BUFFER_SIZES, BAND_IDS, EE_PROJECT
 # Initialize logger
 logger = logging.getLogger(__name__)
 
-# Standalone function for multiprocessing
 # Add this new standalone function for multiprocessing
-def process_point_for_multiprocessing(args):
+def process_point_for_multiprocessing(point_data, extractor=None, start_date=None, end_date=None):
     """
     Standalone function to process a single point in a separate process.
     This function initializes Earth Engine for each worker process.
     
     Args:
-        args (tuple): Tuple containing (point_data, collection, chip_size, ee_project, composite_params, start_date, end_date)
+        point_data (tuple): Tuple containing (index, row) from GeoDataFrame
+        extractor (GEEDataExtractor): The extractor instance (not used directly, just for parameters)
+        start_date (str): Start date string
+        end_date (str): End date string
         
     Returns:
         tuple: (index, chip, label, success)
     """
-    # Unpack arguments
-    point_data, collection, chip_size, ee_project, composite_params, start_date, end_date = args
     idx, row = point_data
     
     try:
         # Initialize Earth Engine for this worker process
         import ee
         try:
-            ee.Initialize(
-                opt_url="https://earthengine-highvolume.googleapis.com",
-                project=ee_project
+            # Get parameters from row if available, otherwise use defaults
+            point_start_date = row.get('start_date', start_date) if hasattr(row, 'get') else start_date
+            point_end_date = row.get('end_date', end_date) if hasattr(row, 'get') else end_date
+            point_clear_threshold = float(row.get('clear_threshold', 0.75)) if hasattr(row, 'get') else 0.75
+            point_class = row['class'] if 'class' in row else 'unknown'
+            
+            # Re-initialize EE in this process
+            ee.Initialize(opt_url="https://earthengine-highvolume.googleapis.com")
+            
+            # Extract point coordinates
+            lng, lat = row.geometry.x, row.geometry.y
+            point = ee.Geometry.Point([lng, lat])
+            
+            # Create composite image using the point-specific dates
+            if extractor.collection == 'S2':
+                s2 = ee.ImageCollection("COPERNICUS/S2_HARMONIZED")
+                
+                # Cloud Score+
+                csPlus = ee.ImageCollection("GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED")
+                QA_BAND = "cs_cdf"
+                
+                composite = (
+                    s2.filterDate(point_start_date, point_end_date)
+                    .linkCollection(csPlus, [QA_BAND])
+                    .map(lambda img: img.updateMask(img.select(QA_BAND).gte(point_clear_threshold)))
+                    .median()
+                )
+            elif extractor.collection == 'S1':
+                s1 = ee.ImageCollection("COPERNICUS/S1_GRD")
+                composite = (
+                    s1.filterDate(point_start_date, point_end_date)
+                    .filter(ee.Filter.eq('instrumentMode', 'IW'))
+                    .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
+                    .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VH"))
+                    .mosaic()
+                )
+            else:
+                raise ValueError(f'Collection {extractor.collection} not recognized')
+            
+            # Calculate buffer distance in meters (simple approximation)
+            buffer_meters = 10 * extractor.chip_size  # 10m resolution for S2
+            if extractor.collection == 'S1':
+                buffer_meters = 20 * extractor.chip_size  # 20m resolution for S1
+            
+            # Buffer the point
+            buffered_point = point.buffer(buffer_meters)
+            
+            # Extract the chip
+            chip = composite.clipToBoundsAndScale(
+                geometry=buffered_point, 
+                width=extractor.chip_size, 
+                height=extractor.chip_size
             )
-            logger.info("Earth Engine initialized successfully")
+            
+            try:
+                # Get the pixels
+                pixels = ee.data.computePixels({
+                    "bandIds": extractor.band_ids,
+                    "expression": chip,
+                    "fileFormat": "NUMPY_NDARRAY",
+                })
+                
+                # Convert from a structured array to a numpy array
+                pixels = np.array(pixels.tolist())
+                
+                return (idx, pixels, point_class, True)
+                
+            except Exception as e:
+                logger.error(f"Error extracting chip at ({lng}, {lat}): {e}")
+                return (idx, None, None, False)
+                
         except Exception as e:
-            logger.error(f"Error initializing Earth Engine: {e}")
-            return (idx, None, None, False)
-        
-        # Get label from row
-        label = row.get('class', 'unknown')
-        
-        # Get resolution and bands
-        resolution = BUFFER_SIZES.get(collection)
-        band_ids = BAND_IDS.get(collection)
-        
-        # Create point geometry
-        point = ee.Geometry.Point([row.geometry.x, row.geometry.y])
-        
-        # Create image collection and composite
-        if collection == 'S2':
-            s2 = ee.ImageCollection("COPERNICUS/S2_HARMONIZED")
-            clear_threshold = composite_params.get('clear_threshold', 0.75)
-
-            # Cloud Score+ from L1C data; can be applied to L1C or L2A.
-            csPlus = ee.ImageCollection("GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED")
-            QA_BAND = "cs_cdf"
-
-            composite = (
-                s2.filterDate(start_date, end_date)
-                .linkCollection(csPlus, [QA_BAND])
-                .map(lambda img: img.updateMask(img.select(QA_BAND).gte(clear_threshold)))
-                .median())
-
-        elif collection == 'S1':
-            s1 = ee.ImageCollection("COPERNICUS/S1_GRD")
-            composite = (
-                s1.filterDate(start_date, end_date)
-                .filter(ee.Filter.eq('instrumentMode', 'IW'))
-                .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
-                .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VH"))
-                .mosaic())
-        else:
-            raise ValueError(f'Collection {collection} not recognized.')
-        
-        # Calculate buffer distance in meters
-        buffer_meters = resolution * chip_size / 2
-        
-        # Buffer the point
-        buffered_point = point.buffer(buffer_meters)
-        
-        # Extract the chip
-        chip = composite.clipToBoundsAndScale(
-            geometry=buffered_point, 
-            width=chip_size, 
-            height=chip_size
-        )
-        
-        try:
-            # Get the pixels
-            pixels = ee.data.computePixels({
-                "bandIds": band_ids,
-                "expression": chip,
-                "fileFormat": "NUMPY_NDARRAY",
-            })
-            
-            # Convert from a structured array to a numpy array
-            pixels = np.array(pixels.tolist())
-            
-            return (idx, pixels, label, True)
-            
-        except Exception as e:
-            logger.error(f"Error extracting chip at ({row.geometry.x}, {row.geometry.y}): {e}")
+            logger.error(f"Error initializing Earth Engine in worker: {e}")
             return (idx, None, None, False)
             
     except Exception as e:
-        logger.error(f"Error extracting chip for point {idx+1}: {e}")
+        logger.error(f"Error processing point {idx}: {e}")
         return (idx, None, None, False)
 
 class GEEDataExtractor:
@@ -414,7 +414,7 @@ class GEEDataExtractor:
             logger.error(f"Error extracting chip for point {idx+1}: {e}")
             return (idx, None, None, False)
 
-    def extract_chips_for_project(self, start_date, end_date, clear_threshold=0.75, progress_callback=None, num_workers=None):
+    def extract_chips_for_project(self, start_date, end_date, clear_threshold=0.75, progress_callback=None, num_workers=None, custom_points_geojson=None):
         """
         Extract chips for all points in a project
         
@@ -424,6 +424,7 @@ class GEEDataExtractor:
             clear_threshold (float): Threshold for cloud cover (0-1)
             progress_callback (callable): Optional callback function for progress updates
             num_workers (int): Number of worker processes to use. If None, uses CPU count - 1
+            custom_points_geojson (dict): Optional GeoJSON to use instead of loading from file
             
         Returns:
             tuple: (output_file, metadata_file) paths
@@ -437,12 +438,45 @@ class GEEDataExtractor:
         output_dir = os.path.join(project_dir, "extracted_data")
         os.makedirs(output_dir, exist_ok=True)
         
-        # Define standard filenames for consistent data storage
+        # Define standard filenames for consistent data storage (no timestamps)
         standard_data_file = os.path.join(output_dir, f"{self.collection}_{self.chip_size}px_extracted_data.nc")
         standard_metadata_file = os.path.join(output_dir, f"{self.collection}_{self.chip_size}px_metadata.json")
         
-        # Load points from file - should use points.geojson now
-        points_gdf = self._load_points(project_dir)
+        # Load points either from custom GeoJSON or from file
+        if custom_points_geojson:
+            # Load points from the provided GeoJSON
+            features = custom_points_geojson['features']
+            
+            # Extract properties including time parameters
+            geometries = []
+            properties = []
+            
+            for feature in features:
+                if 'geometry' in feature and 'coordinates' in feature['geometry']:
+                    coords = feature['geometry']['coordinates']
+                    geometries.append(Point(coords[0], coords[1]))
+                    
+                    # Get all properties
+                    prop_dict = feature.get('properties', {}).copy()
+                    
+                    # Ensure time parameters are included
+                    if 'start_date' not in prop_dict:
+                        prop_dict['start_date'] = start_date
+                    if 'end_date' not in prop_dict:
+                        prop_dict['end_date'] = end_date
+                    if 'clear_threshold' not in prop_dict:
+                        prop_dict['clear_threshold'] = clear_threshold
+                        
+                    properties.append(prop_dict)
+            
+            # Create GeoDataFrame with properties
+            points_gdf = gpd.GeoDataFrame(geometry=geometries, data=properties)
+            points_gdf.set_crs("EPSG:4326", inplace=True)
+            logger.info(f"Using custom points GeoJSON with {len(points_gdf)} points")
+        else:
+            # Load points from file - should use points.geojson now
+            points_gdf = self._load_points(project_dir)
+            logger.info(f"Loaded {len(points_gdf)} points from project files")
         
         # Ensure the GeoDataFrame has a CRS
         if points_gdf.crs is None:
@@ -450,297 +484,296 @@ class GEEDataExtractor:
             logger.warning("Points GeoDataFrame had no CRS, setting to EPSG:4326")
         
         # Check for existing data in the standard file
-        cached_ds = None
-        cached_metadata = None
+        existing_ds = None
         
-        if os.path.exists(standard_data_file) and os.path.exists(standard_metadata_file):
+        if os.path.exists(standard_data_file):
             try:
                 # Load the existing dataset
-                cached_ds = xr.open_dataset(standard_data_file)
+                existing_ds = xr.open_dataset(standard_data_file)
+                logger.info(f"Found existing dataset with {len(existing_ds.point)} points")
                 
-                # Load the existing metadata
-                with open(standard_metadata_file, 'r') as f:
-                    cached_metadata = json.load(f)
-                
-                # Create GeoDataFrame from cached points
-                cached_points = gpd.GeoDataFrame(
+                # Create GeoDataFrame from existing points
+                existing_points = gpd.GeoDataFrame(
                     geometry=[Point(lon, lat) for lon, lat in 
-                            zip(cached_ds.longitude.values, cached_ds.latitude.values)],
-                    data={'class': cached_ds.label.values},
+                            zip(existing_ds.longitude.values, existing_ds.latitude.values)],
+                    data={
+                        'class': existing_ds.label.values,
+                        'id': existing_ds.point_id.values
+                    },
                     crs="EPSG:4326"
                 )
+                
+                # Find points that are not yet in the dataset
+                points_gdf = self._get_uncached_points(points_gdf, existing_points)
+                logger.info(f"After filtering out existing points, {len(points_gdf)} new points remain to be processed")
+                
             except Exception as e:
-                logger.warning(f"Error reading existing data: {e}")
-                cached_ds = None
-                cached_metadata = None
-                cached_points = None
-        else:
-            cached_points = None
+                logger.error(f"Error loading existing dataset: {str(e)}")
+                logger.warning("Creating a new dataset instead")
+                existing_ds = None
         
-        # Get points that need to be extracted
-        points_to_extract = self._get_uncached_points(points_gdf, cached_points)
-        
-        # Ensure the points_to_extract GeoDataFrame has a CRS
-        if points_to_extract is not None and len(points_to_extract) > 0 and points_to_extract.crs is None:
-            points_to_extract.set_crs(points_gdf.crs, inplace=True)
-            logger.warning("points_to_extract GeoDataFrame had no CRS, copying from original points")
-        
-        if len(points_to_extract) == 0 and cached_ds is not None:
-            logger.info("All points found in cache, reusing existing dataset")
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        # If no points to process, return the existing file paths
+        if len(points_gdf) == 0:
+            logger.info("No new points to process, returning existing dataset")
             
-            # Get number of points from cached dataset
-            num_points = len(cached_ds.point)
-            
-            # Make sure to close the cached dataset
-            cached_ds.close()
-            
-            # Update the metadata with the reuse information
-            if cached_metadata:
-                cached_metadata["last_checked"] = timestamp
+            # If there's no existing dataset but also no points, create an empty one
+            if existing_ds is None:
+                logger.warning("No existing dataset and no points to process, creating empty dataset")
+                empty_ds = self._create_empty_dataset()
+                empty_ds.to_netcdf(standard_data_file)
+                
+                # Create metadata for empty dataset
+                metadata = {
+                    'collection': self.collection,
+                    'chip_size': self.chip_size,
+                    'num_chips': 0,
+                    'extraction_time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'last_updated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                
                 with open(standard_metadata_file, 'w') as f:
-                    json.dump(cached_metadata, f, indent=2)
+                    json.dump(metadata, f, indent=2)
             
             return standard_data_file, standard_metadata_file
         
-        # Create the image collection for new points
-        if len(points_to_extract) > 0:
-            # We'll create image collections in each worker process instead
-            # Just prepare the composite parameters
-            composite_params = {
-                'clear_threshold': clear_threshold
-            }
+        # Create the Earth Engine composite image for extraction
+        try:
+            self.create_image_collection(start_date, end_date, clear_threshold)
+        except Exception as e:
+            logger.error(f"Error creating image collection: {str(e)}")
+            raise e
         
-        # Extract chips for new points using multiprocessing
-        new_chips = []
-        new_labels = []
-        new_points = []
-        
-        total_points = len(points_to_extract)
-        
-        # Determine number of workers
+        # Set up multiprocessing for extraction
         if num_workers is None:
+            import multiprocessing
+            # Use n-1 cores to avoid overwhelming the system, but at least 1
             num_workers = max(1, multiprocessing.cpu_count() - 1)
-        
-        # Create a progress counter for callback
-        processed_count = 0
-        
-        if total_points > 0:
-            # Reset the index of points_to_extract to ensure contiguous indices
-            points_to_extract = points_to_extract.reset_index(drop=True)
             
-            # Process points in parallel
-            with multiprocessing.Pool(processes=num_workers) as pool:
-                # Create an iterator of arguments for each point
-                point_data_iter = points_to_extract.iterrows()
+        # Process all points
+        logger.info(f"Starting extraction for {len(points_gdf)} points using {num_workers} workers")
+        
+        # Extract all chips
+        chips = []
+        labels = []
+        
+        point_data_list = [(idx, row) for idx, row in points_gdf.iterrows()]
+        total_points = len(point_data_list)
+        processed = 0
+        
+        # Use pool for parallel processing if more than one worker
+        if num_workers > 1 and total_points > 1:
+            import multiprocessing as mp
+            from functools import partial
+            
+            with mp.Pool(num_workers) as pool:
+                process_point_fn = partial(process_point_for_multiprocessing, 
+                                          extractor=self, 
+                                          start_date=start_date, 
+                                          end_date=end_date)
                 
-                # Ensure each row has the CRS information
-                args_iter = []
-                for point_data in point_data_iter:
-                    idx, row = point_data
-                    # Create a copy of the row with explicit CRS information
-                    # This ensures the CRS is available in the worker process
-                    args_iter.append((
-                        (idx, row), 
-                        self.collection, 
-                        self.chip_size, 
-                        self.ee_project, 
-                        composite_params, 
-                        start_date,
-                        end_date
-                    ))
-                
-                # Use imap to process points and get immediate results
-                for idx, chip_data, label, success in pool.imap(process_point_for_multiprocessing, args_iter):
-                    processed_count += 1
-                    
-                    if success:
-                        new_chips.append(chip_data)
-                        new_labels.append(label)
-                        
-                        # Keep track of the actual point - get from the original DataFrame
-                        point_row = points_to_extract.iloc[idx]
-                        point_data = {
-                            'geometry': point_row.geometry,
-                            'class': point_row['class']
-                        }
-                        
-                        # Add point ID if available
-                        if 'id' in point_row:
-                            point_data['id'] = point_row['id']
-                        else:
-                            logger.warning(f"No ID found for point {idx}")
-                        
-                        new_points.append(point_data)
+                for idx, chip, label, success in pool.imap(process_point_fn, point_data_list):
+                    processed += 1
                     
                     if progress_callback:
-                        progress_callback(processed_count, total_points)
+                        progress_callback(processed, total_points)
                     
-                    logger.info(f"Processed chip {processed_count}/{total_points}")
-        
-        # Create a GeoDataFrame from the successful points
-        if new_points:
-            successful_points = gpd.GeoDataFrame(new_points, crs=points_gdf.crs)
-            logger.info(f"Created successful_points GeoDataFrame with {len(successful_points)} points")
+                    if success:
+                        chips.append(chip)
+                        labels.append(label)
+                        
+                    logger.debug(f"Processed point {processed}/{total_points}")
         else:
-            successful_points = gpd.GeoDataFrame(geometry=[], crs=points_gdf.crs)
-            logger.warning("No successful points to create GeoDataFrame")
-        
-        # Combine new data with cached data if available
-        if cached_ds is not None and len(new_chips) > 0:
-            # Convert new data to xarray
-            new_chips_array = np.stack(new_chips)
-            new_ds = self._create_xarray_dataset(new_chips_array, new_labels, 
-                                               successful_points, start_date, end_date)
-            
-            # Combine datasets
-            ds = xr.concat([cached_ds, new_ds], dim='point')
-            
-            # Make sure to close the cached dataset
-            cached_ds.close()
-            new_ds.close()
-        elif cached_ds is not None:
-            ds = cached_ds.copy(deep=True)
-            cached_ds.close()
-        elif len(new_chips) > 0:
-            # Convert to xarray
-            new_chips_array = np.stack(new_chips)
-            ds = self._create_xarray_dataset(new_chips_array, new_labels, 
-                                           successful_points, start_date, end_date)
-        else:
-            raise ValueError("No chips were extracted successfully")
-        
-        # Save the combined dataset to the standard file
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        num_points = len(ds.point)
-        
-        # Create a temporary file first, then rename it to avoid issues with partially written files
-        temp_data_file = os.path.join(output_dir, f"temp_{timestamp}_{self.collection}_{self.chip_size}px_extracted_data.nc")
-        
-        try:
-            # Save to temporary file first
-            ds.to_netcdf(temp_data_file)
-            
-            # Close the dataset before moving the file
-            ds.close()
-            
-            # Verify that the data was saved correctly
-            try:
-                # Open the temporary file to check if point_id was saved correctly
-                verification_ds = xr.open_dataset(temp_data_file)
-                if 'point_id' not in verification_ds:
-                    logger.error(f"Verification failed: point_id variable not found in saved file")
-                verification_ds.close()
-            except Exception as e:
-                logger.error(f"Error verifying saved file: {e}")
-            
-            # Make sure the target file doesn't exist (could happen if there was a previous attempt)
-            if os.path.exists(standard_data_file):
-                try:
-                    # Directly remove the existing file instead of creating a backup
-                    os.remove(standard_data_file)
-                    logger.info(f"Removed existing data file: {standard_data_file}")
-                except OSError as e:
-                    logger.error(f"Could not remove existing file: {e}")
-                    raise ValueError(f"Could not replace existing file: {standard_data_file}. It may be in use by another process.")
-            
-            # Now rename the temp file to the standard file name
-            os.rename(temp_data_file, standard_data_file)
-            
-        except Exception as e:
-            logger.error(f"Error saving dataset: {e}")
-            # Clean up temp file if it exists
-            if os.path.exists(temp_data_file):
-                try:
-                    os.remove(temp_data_file)
-                except:
-                    pass
-            raise e
-        
-        # Update metadata
-        metadata = {
-            "collection": self.collection,
-            "start_date": start_date,
-            "end_date": end_date,
-            "clear_threshold": clear_threshold,
-            "chip_size": self.chip_size,
-            "num_chips": num_points,
-            "num_cached_chips": len(cached_ds.point) if cached_ds is not None else 0,
-            "num_new_chips": len(new_chips),
-            "bands": self.band_ids,
-            "last_updated": timestamp,
-            "num_workers": num_workers
-        }
-        
-        # Save metadata to a temporary file first
-        temp_metadata_file = os.path.join(output_dir, f"temp_{timestamp}_metadata.json")
-        
-        try:
-            with open(temp_metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
+            # Single-threaded processing
+            for point_data in point_data_list:
+                idx, chip, label, success = self._process_single_point(point_data, start_date, end_date)
+                processed += 1
                 
-            # Make sure the target file doesn't exist
-            if os.path.exists(standard_metadata_file):
-                try:
-                    os.remove(standard_metadata_file)
-                except OSError:
-                    pass
+                if progress_callback:
+                    progress_callback(processed, total_points)
+                
+                if success:
+                    chips.append(chip)
+                    labels.append(label)
                     
-            # Rename the temp file to the standard metadata file
-            os.rename(temp_metadata_file, standard_metadata_file)
-        except Exception as e:
-            logger.error(f"Error saving metadata: {e}")
-            # Clean up temp file if it exists
-            if os.path.exists(temp_metadata_file):
-                try:
-                    os.remove(temp_metadata_file)
-                except:
-                    pass
-            raise e
+                logger.debug(f"Processed point {processed}/{total_points}")
+        
+        # Check if we have any valid chips
+        if not chips:
+            logger.warning("No valid chips were extracted for any points")
+            # Return existing file or create empty one if needed
+            if existing_ds is None:
+                logger.warning("Creating empty dataset as no chips were extracted")
+                empty_ds = self._create_empty_dataset()
+                empty_ds.to_netcdf(standard_data_file)
+                
+                # Create metadata for empty dataset
+                metadata = {
+                    'collection': self.collection,
+                    'chip_size': self.chip_size,
+                    'num_chips': 0,
+                    'extraction_time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'last_updated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                
+                with open(standard_metadata_file, 'w') as f:
+                    json.dump(metadata, f, indent=2)
+            
+            return standard_data_file, standard_metadata_file
+        
+        # Convert list of chips to numpy array
+        chips_array = np.stack(chips)
+        logger.info(f"Successfully extracted {len(chips)} chips")
+        
+        # Create xarray dataset for the newly extracted points
+        points_with_data_gdf = points_gdf.iloc[[i for i, (idx, chip, label, success) in enumerate(zip(range(len(point_data_list)), chips, labels, [True] * len(chips))) if success]]
+        
+        # Get specific start_date and end_date for each point that was successfully processed
+        point_start_dates = []
+        point_end_dates = []
+        
+        for i, row in points_with_data_gdf.iterrows():
+            # Use point-specific dates if available
+            if 'start_date' in row and row['start_date']:
+                point_start_dates.append(row['start_date'])
+            else:
+                point_start_dates.append(start_date)
+                
+            if 'end_date' in row and row['end_date']:
+                point_end_dates.append(row['end_date'])
+            else:
+                point_end_dates.append(end_date)
+        
+        # Create dataset with the newly extracted points
+        new_ds = self._create_xarray_dataset(chips_array, labels, points_with_data_gdf, start_date, end_date)
+        
+        # If we have an existing dataset, append the new data to it
+        if existing_ds is not None:
+            try:
+                # Concatenate the existing and new datasets
+                combined_ds = xr.concat([existing_ds, new_ds], dim='point')
+                
+                # Reset the point index to ensure it's sequential
+                point_indices = np.arange(len(combined_ds.point))
+                combined_ds = combined_ds.assign_coords(point=point_indices)
+                
+                # Close the existing dataset before overwriting the file
+                existing_ds.close()
+                
+                # Save the combined dataset
+                combined_ds.to_netcdf(standard_data_file)
+                logger.info(f"Appended {len(new_ds.point)} new points to existing dataset, total: {len(combined_ds.point)}")
+                
+                # Update metadata
+                metadata = {
+                    'collection': self.collection,
+                    'chip_size': self.chip_size,
+                    'num_chips': len(combined_ds.point),
+                    'extraction_time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'last_updated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+            except Exception as e:
+                logger.error(f"Error concatenating datasets: {str(e)}")
+                # If concatenation fails, just use the new dataset
+                new_ds.to_netcdf(standard_data_file)
+                logger.warning(f"Saved only the new dataset with {len(new_ds.point)} points due to concatenation error")
+                
+                # Update metadata for new dataset only
+                metadata = {
+                    'collection': self.collection,
+                    'chip_size': self.chip_size,
+                    'num_chips': len(new_ds.point),
+                    'extraction_time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'last_updated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+        else:
+            # Just save the new dataset
+            new_ds.to_netcdf(standard_data_file)
+            logger.info(f"Saved new dataset with {len(new_ds.point)} points")
+            
+            # Create metadata for new dataset
+            metadata = {
+                'collection': self.collection,
+                'chip_size': self.chip_size,
+                'num_chips': len(new_ds.point),
+                'extraction_time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'last_updated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        
+        # Save metadata
+        with open(standard_metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
         
         return standard_data_file, standard_metadata_file
+    
+    def _create_empty_dataset(self):
+        """Create an empty xarray dataset"""
+        return xr.Dataset(
+            data_vars={
+                'chips': (('point', 'y', 'x', 'band'), np.zeros((0, self.chip_size, self.chip_size, len(self.band_ids)))),
+                'label': (('point'), np.array([], dtype=str)),
+                'longitude': (('point'), np.array([], dtype=np.float64)),
+                'latitude': (('point'), np.array([], dtype=np.float64)),
+                'point_id': (('point'), np.array([], dtype=str)),
+                'start_date': (('point'), np.array([], dtype=str)),
+                'end_date': (('point'), np.array([], dtype=str)),
+                'clear_threshold': (('point'), np.array([], dtype=np.float32))
+            },
+            coords={
+                'point': np.array([], dtype=np.int64),
+                'y': np.arange(self.chip_size),
+                'x': np.arange(self.chip_size),
+                'band': self.band_ids
+            },
+            attrs={
+                'collection': self.collection,
+                'chip_size': self.chip_size,
+                'crs': 'EPSG:4326'
+            }
+        )
 
     def _load_points(self, project_dir):
         """Helper method to load points from file."""
-        # Look for points.geojson file
-        points_file = os.path.join(project_dir, "points.geojson")
+        # First try to look for points.geojson (new standard format)
+        points_geojson_file = os.path.join(project_dir, 'points.geojson')
+        points_json_file = os.path.join(project_dir, 'points.json')  # Older format
         
-        if not os.path.exists(points_file):
-            logger.warning(f"No points.geojson file found in {project_dir}")
-            # Try to find any other GeoJSON files
-            geojson_files = [f for f in os.listdir(project_dir) if f.endswith('.geojson')]
-            if not geojson_files:
-                logger.error(f"No GeoJSON files found in {project_dir}")
-                raise FileNotFoundError(f"No point data found in {project_dir}")
-            
-            # Use the most recent GeoJSON file
-            points_file = os.path.join(project_dir, geojson_files[0])
-            logger.info(f"Using {points_file} for points")
+        points = []
         
-        # Load the GeoJSON file
+        if os.path.exists(points_geojson_file):
+            try:
+                logger.info(f"Loading points from GeoJSON file: {points_geojson_file}")
+                gdf = gpd.read_file(points_geojson_file)
+                logger.info(f"Successfully loaded {len(gdf)} points from GeoJSON")
+                return gdf
+            except Exception as e:
+                logger.error(f"Error loading points from GeoJSON: {str(e)}")
+                # Fall back to loading from JSON if GeoJSON loading failed
+        
+        # If we're here, we need to load from the JSON file or there was an error with the GeoJSON
         try:
-            with open(points_file, 'r') as f:
-                geojson = json.load(f)
-                
-            # Check if it's a valid GeoJSON with features
-            if 'features' not in geojson:
-                logger.error(f"Invalid GeoJSON file: {points_file} - no features found")
-                raise ValueError(f"Invalid GeoJSON file: {points_file} - no features found")
-                
-            points = geojson['features']
-            logger.info(f"Loaded {len(points)} points from {points_file}")
-            
-            # Check if points have IDs
-            has_ids = sum(1 for p in points if 'properties' in p and 'id' in p.get('properties', {}))
-            if has_ids < len(points):
-                logger.warning(f"Only {has_ids} of {len(points)} points have IDs")
-                
+            if os.path.exists(points_json_file):
+                logger.info(f"Loading points from JSON file: {points_json_file}")
+                with open(points_json_file, 'r') as f:
+                    points = json.load(f)
+            elif os.path.exists(points_geojson_file):
+                logger.info(f"Loading points from GeoJSON file as JSON: {points_geojson_file}")
+                with open(points_geojson_file, 'r') as f:
+                    geojson_data = json.load(f)
+                    if 'features' in geojson_data:
+                        points = geojson_data['features']
+                    else:
+                        logger.error("GeoJSON file does not contain a 'features' property")
+                        return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+            else:
+                logger.error("No points file found")
+                return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
         except Exception as e:
-            logger.error(f"Error loading points from {points_file}: {e}")
-            raise e
+            logger.error(f"Error loading points: {str(e)}")
+            return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
         
-        # Convert points.json to GeoDataFrame
+        # Create a list to store the data for each point
         data = []
+        
         for point in points:
             # Extract coordinates and class from the points structure
             if 'geometry' in point and 'coordinates' in point['geometry']:
@@ -753,11 +786,20 @@ class GEEDataExtractor:
                 if 'properties' in point and 'id' in point['properties']:
                     point_id = str(point['properties']['id'])
                 
+                # Extract time parameters if present
+                properties = point.get('properties', {})
+                start_date = properties.get('start_date', '')
+                end_date = properties.get('end_date', '')
+                clear_threshold = properties.get('clear_threshold', 0.75)
+                
                 # Add to data list
                 data.append({
                     'geometry': Point(lng, lat),
                     'class': point_class,
-                    'id': point_id
+                    'id': point_id,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'clear_threshold': clear_threshold
                 })
             elif 'lng' in point and 'lat' in point:
                 # Older format with lng/lat directly in the point
@@ -773,7 +815,10 @@ class GEEDataExtractor:
                 data.append({
                     'geometry': Point(lng, lat),
                     'class': point_class,
-                    'id': point_id
+                    'id': point_id,
+                    'start_date': '',
+                    'end_date': '',
+                    'clear_threshold': 0.75
                 })
         
         # Create GeoDataFrame with explicit CRS
@@ -814,12 +859,38 @@ class GEEDataExtractor:
             logger.warning("No 'id' column found in points_gdf, generating placeholder IDs")
             point_ids = [f"point_{i}" for i in range(num_chips)]
         
+        # Get per-point start and end dates if available
+        # If not in the GeoDataFrame, use the provided global start/end dates
+        start_dates = []
+        end_dates = []
+        clear_thresholds = []
+        
+        for i in range(len(points_gdf)):
+            # Default to global value if not present for a specific point
+            if 'start_date' in points_gdf.columns:
+                start_dates.append(points_gdf['start_date'].iloc[i])
+            else:
+                start_dates.append(start_date)
+                
+            if 'end_date' in points_gdf.columns:
+                end_dates.append(points_gdf['end_date'].iloc[i])
+            else:
+                end_dates.append(end_date)
+                
+            if 'clear_threshold' in points_gdf.columns:
+                clear_thresholds.append(float(points_gdf['clear_threshold'].iloc[i]))
+            else:
+                clear_thresholds.append(float(0.75))  # Default threshold
+        
         # Ensure consistent data types for all variables
         # Convert labels to strings to avoid serialization issues
         labels_array = np.array([str(label) for label in labels])
         lons_array = np.array(lons, dtype=np.float64)
         lats_array = np.array(lats, dtype=np.float64)
         point_ids_array = np.array(point_ids, dtype=str)
+        start_dates_array = np.array(start_dates, dtype=str)
+        end_dates_array = np.array(end_dates, dtype=str)
+        clear_thresholds_array = np.array(clear_thresholds, dtype=np.float32)
         
         # Create xarray dataset
         ds = xr.Dataset(
@@ -828,7 +899,10 @@ class GEEDataExtractor:
                 'label': (('point'), labels_array),
                 'longitude': (('point'), lons_array),
                 'latitude': (('point'), lats_array),
-                'point_id': (('point'), point_ids_array)  # Add point_id as a data variable
+                'point_id': (('point'), point_ids_array),  # Add point_id as a data variable
+                'start_date': (('point'), start_dates_array),  # Add per-point start date
+                'end_date': (('point'), end_dates_array),  # Add per-point end date
+                'clear_threshold': (('point'), clear_thresholds_array)  # Add per-point clear threshold
             },
             coords={
                 'point': np.arange(num_chips),
@@ -838,8 +912,6 @@ class GEEDataExtractor:
             },
             attrs={
                 'collection': self.collection,
-                'start_date': start_date,
-                'end_date': end_date,
                 'chip_size': self.chip_size,
                 'crs': 'EPSG:4326'
             }

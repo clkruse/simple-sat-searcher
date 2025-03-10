@@ -2,6 +2,7 @@
 import { EventEmitter } from '../utils/EventEmitter.js';
 import { config } from '../config.js';
 import { store } from '../state/Store.js';
+import { ApiService } from '../services/ApiService.js';
 
 class Map extends EventEmitter {
   constructor() {
@@ -172,6 +173,25 @@ class Map extends EventEmitter {
     store.on('points:loaded', (points) => {
       if (points && points.length > 0) {
         this.fitToPoints(points);
+        
+        // Visualize patches for all loaded points
+        const currentProjectId = store.get('currentProjectId');
+        if (currentProjectId) {
+          this.visualizeAllPointPatches(currentProjectId, true);
+        }
+      }
+    });
+    
+    // Listen for project selection to visualize patches
+    store.on('currentProjectId', (projectId) => {
+      if (projectId) {
+        // Small delay to allow points to load first
+        setTimeout(() => {
+          this.visualizeAllPointPatches(projectId, true);
+        }, 500);
+      } else {
+        // If project is deselected, clear visualizations
+        this.clearVisualization();
       }
     });
     
@@ -192,6 +212,45 @@ class Map extends EventEmitter {
   addPoint(lngLat, pointClass) {
     const pointId = Date.now();
     
+    // Get the imagery time period and cloudiness threshold from the control panel
+    // or map imagery panel, depending on which is available
+    let startDate = '';
+    let endDate = '';
+    let clearThreshold = 0.75;
+    
+    // Try to get values from control panel first (highest priority)
+    const controlStartDate = document.getElementById('control-start-date');
+    const controlEndDate = document.getElementById('control-end-date');
+    const controlThreshold = document.getElementById('control-clear-threshold');
+    
+    if (controlStartDate && controlEndDate && controlThreshold) {
+      startDate = controlStartDate.value;
+      endDate = controlEndDate.value;
+      clearThreshold = controlThreshold.value;
+    } else {
+      // Fall back to map imagery panel values if available
+      const imageryStartDate = document.getElementById('imagery-start-date');
+      const imageryEndDate = document.getElementById('imagery-end-date');
+      const imageryThreshold = document.getElementById('imagery-clear-threshold');
+      
+      if (imageryStartDate && imageryEndDate && imageryThreshold) {
+        startDate = imageryStartDate.value;
+        endDate = imageryEndDate.value;
+        clearThreshold = imageryThreshold.value;
+      } else {
+        // Last resort: try extract panel values
+        const extractStartDate = document.getElementById('start-date');
+        const extractEndDate = document.getElementById('end-date');
+        const extractThreshold = document.getElementById('clear-threshold');
+        
+        if (extractStartDate && extractEndDate && extractThreshold) {
+          startDate = extractStartDate.value;
+          endDate = extractEndDate.value;
+          clearThreshold = extractThreshold.value;
+        }
+      }
+    }
+    
     // Create a new point feature
     const point = {
       'type': 'Feature',
@@ -201,7 +260,10 @@ class Map extends EventEmitter {
       },
       'properties': {
         'id': pointId,
-        'class': pointClass
+        'class': pointClass,
+        'start_date': startDate,
+        'end_date': endDate,
+        'clear_threshold': clearThreshold
       }
     };
     
@@ -213,8 +275,150 @@ class Map extends EventEmitter {
     
     // Auto-export points
     if (store.get('currentProjectId')) {
-      store.exportPoints();
+      store.exportPoints().then(() => {
+        // After exporting points, trigger extraction for this point
+        this.extractPointData(point);
+      });
     }
+  }
+  
+  // Extract data for a single point
+  extractPointData(point) {
+    const currentProjectId = store.get('currentProjectId');
+    if (!currentProjectId) return;
+    
+    // Get project info to find out chip size
+    const apiService = new ApiService();
+    
+    // Discreetly show a small indicator next to the point
+    this.showExtractionIndicator(point);
+    
+    apiService.getProjectInfo(currentProjectId)
+      .then(projectInfo => {
+        const chipSize = projectInfo.chip_size || 64; // Default to 64 if not found
+        
+        // Get collection from control panel if available
+        let collection = 'S2';
+        const controlCollection = document.getElementById('control-collection');
+        if (controlCollection) {
+          collection = controlCollection.value;
+        }
+        
+        // Extract data for this point
+        return apiService.extractPointData({
+          project_id: currentProjectId,
+          point: point,
+          collection: collection,
+          chip_size: chipSize
+        });
+      })
+      .then(response => {
+        if (response.success) {
+          console.log(`Data extracted for point ${point.properties.id}`);
+          // Update the indicator to show success
+          this.updateExtractionIndicator(point, 'success');
+          
+          // Now visualize only this point without clearing existing visualizations
+          this.visualizeSinglePoint(currentProjectId, point.properties.id);
+        } else {
+          console.error(`Error extracting data for point: ${response.message}`);
+          // Update the indicator to show failure
+          this.updateExtractionIndicator(point, 'error');
+        }
+      })
+      .catch(error => {
+        console.error(`Error during point extraction: ${error.message}`);
+        this.updateExtractionIndicator(point, 'error');
+      });
+  }
+  
+  // Visualize only a single point's patch without clearing existing visualizations
+  visualizeSinglePoint(projectId, pointId) {
+    const apiService = new ApiService();
+    
+    // Default visualization type - true_color is usually a good default
+    const visualizationType = 'true_color';
+    
+    // First, list extractions to find the most recent file
+    apiService.listExtractedData(projectId)
+      .then(data => {
+        if (!data.success || !data.extractions || data.extractions.length === 0) {
+          throw new Error('No extractions found for this project');
+        }
+        
+        // Get the most recent extraction
+        const latestExtraction = data.extractions[0].filename;
+        
+        // Get visualization for just this point
+        return apiService.getPatchVisualization(
+          projectId,
+          latestExtraction,
+          visualizationType,
+          pointId // Pass the point ID to get just this one patch
+        );
+      })
+      .then(data => {
+        if (data.success && data.patches && data.patches.length > 0) {
+          // Display just this patch without clearing others
+          this.displayPatches(data.patches, visualizationType, false);
+        } else {
+          console.warn('No visualization data available for this point yet');
+        }
+      })
+      .catch(error => {
+        console.error(`Error visualizing point: ${error.message}`);
+      });
+  }
+  
+  // Visualize patches for all extracted points in the project
+  visualizeAllPointPatches(projectId, clearExisting = true) {
+    const apiService = new ApiService();
+    
+    // Default visualization type - true_color is usually a good default
+    const visualizationType = 'true_color';
+    
+    // First, list extractions to find the most recent file
+    apiService.listExtractedData(projectId)
+      .then(data => {
+        if (!data.success || !data.extractions || data.extractions.length === 0) {
+          throw new Error('No extractions found for this project');
+        }
+        
+        // Get the most recent extraction
+        const latestExtraction = data.extractions[0].filename;
+        
+        // Get visualization for all points
+        return apiService.getPatchVisualization(
+          projectId,
+          latestExtraction,
+          visualizationType
+          // No point_id parameter means we get all points
+        );
+      })
+      .then(data => {
+        if (data.success && data.patches && data.patches.length > 0) {
+          // Display all patches, optionally clearing existing ones
+          this.displayPatches(data.patches, visualizationType, clearExisting);
+        } else {
+          console.warn('No visualization data available for this project yet');
+        }
+      })
+      .catch(error => {
+        console.error(`Error visualizing patches: ${error.message}`);
+      });
+  }
+  
+  // Show a small indicator next to the point to show extraction status
+  showExtractionIndicator(point) {
+    // You can implement this to show a loading indicator
+    // For simplicity, we'll just leave as a placeholder
+    console.log(`Extracting data for point ${point.properties.id}...`);
+  }
+  
+  // Update extraction indicator status
+  updateExtractionIndicator(point, status) {
+    // Update the indicator (placeholder)
+    console.log(`Extraction for point ${point.properties.id} status: ${status}`);
   }
   
   removePoint(pointId) {
@@ -229,8 +433,14 @@ class Map extends EventEmitter {
     this.emit('pointRemoved', { id: pointId, class: pointClass });
     
     // Auto-export points
-    if (store.get('currentProjectId')) {
-      store.exportPoints();
+    const currentProjectId = store.get('currentProjectId');
+    if (currentProjectId) {
+      store.exportPoints().then(() => {
+        // After removing a point, we need to reload all visualizations
+        // This is necessary because we don't have a direct way to identify 
+        // which visualization belongs to which point
+        this.visualizeAllPointPatches(currentProjectId, true);
+      });
     }
   }
   
@@ -283,9 +493,11 @@ class Map extends EventEmitter {
   }
   
   // Display patches on the map with geographic scaling
-  displayPatches(patches, visualizationType) {
-    // Clear any existing overlays first
-    this.clearVisualization();
+  displayPatches(patches, visualizationType, clearExisting = true) {
+    // Clear any existing overlays if requested
+    if (clearExisting) {
+      this.clearVisualization();
+    }
     
     patches.forEach((patch, index) => {
       // Get coordinates

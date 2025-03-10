@@ -150,12 +150,6 @@ class App {
     }
     
     setupEventHandlers() {
-      // EXTRACTION PANEL
-      const extractBtn = document.getElementById('extract-btn');
-      if (extractBtn) {
-        extractBtn.addEventListener('click', this.handleExtractData.bind(this));
-      }
-      
       // VISUALIZATION PANEL
       const loadVisualizationBtn = document.getElementById('load-visualization-btn');
       if (loadVisualizationBtn) {
@@ -202,6 +196,17 @@ class App {
         removeImageryBtn.addEventListener('click', this.handleRemoveImagery.bind(this));
       }
       
+      // CONTROL PANEL IMAGERY BUTTONS
+      const controlLoadImageryBtn = document.getElementById('control-load-imagery-btn');
+      if (controlLoadImageryBtn) {
+        controlLoadImageryBtn.addEventListener('click', this.handleControlLoadImagery.bind(this));
+      }
+      
+      const controlRemoveImageryBtn = document.getElementById('control-remove-imagery-btn');
+      if (controlRemoveImageryBtn) {
+        controlRemoveImageryBtn.addEventListener('click', this.handleRemoveImagery.bind(this));
+      }
+      
       // THRESHOLD SLIDERS
       const clearThreshold = document.getElementById('clear-threshold');
       if (clearThreshold) {
@@ -217,6 +222,98 @@ class App {
         });
       }
       
+      const controlThreshold = document.getElementById('control-clear-threshold');
+      if (controlThreshold) {
+        controlThreshold.addEventListener('input', (e) => {
+          document.getElementById('control-threshold-value').textContent = e.target.value;
+        });
+      }
+      
+      // SYNC SETTINGS BETWEEN PANELS
+      // Control panel to map imagery panel sync
+      const controlStartDate = document.getElementById('control-start-date');
+      const controlEndDate = document.getElementById('control-end-date');
+      const controlCollection = document.getElementById('control-collection');
+      
+      if (controlStartDate) {
+        controlStartDate.addEventListener('change', (e) => {
+          const imageryStartDate = document.getElementById('imagery-start-date');
+          if (imageryStartDate) {
+            imageryStartDate.value = e.target.value;
+          }
+        });
+      }
+      
+      if (controlEndDate) {
+        controlEndDate.addEventListener('change', (e) => {
+          const imageryEndDate = document.getElementById('imagery-end-date');
+          if (imageryEndDate) {
+            imageryEndDate.value = e.target.value;
+          }
+        });
+      }
+      
+      if (controlCollection) {
+        controlCollection.addEventListener('change', (e) => {
+          const imageryCollection = document.getElementById('imagery-collection');
+          if (imageryCollection) {
+            imageryCollection.value = e.target.value;
+          }
+        });
+      }
+      
+      if (controlThreshold) {
+        controlThreshold.addEventListener('change', (e) => {
+          const imageryThreshold = document.getElementById('imagery-clear-threshold');
+          if (imageryThreshold) {
+            imageryThreshold.value = e.target.value;
+            document.getElementById('imagery-threshold-value').textContent = e.target.value;
+          }
+        });
+      }
+      
+      // Map imagery panel to control panel sync
+      const imageryStartDate = document.getElementById('imagery-start-date');
+      const imageryEndDate = document.getElementById('imagery-end-date');
+      const imageryCollection = document.getElementById('imagery-collection');
+      
+      if (imageryStartDate) {
+        imageryStartDate.addEventListener('change', (e) => {
+          const controlStartDate = document.getElementById('control-start-date');
+          if (controlStartDate) {
+            controlStartDate.value = e.target.value;
+          }
+        });
+      }
+      
+      if (imageryEndDate) {
+        imageryEndDate.addEventListener('change', (e) => {
+          const controlEndDate = document.getElementById('control-end-date');
+          if (controlEndDate) {
+            controlEndDate.value = e.target.value;
+          }
+        });
+      }
+      
+      if (imageryCollection) {
+        imageryCollection.addEventListener('change', (e) => {
+          const controlCollection = document.getElementById('control-collection');
+          if (controlCollection) {
+            controlCollection.value = e.target.value;
+          }
+        });
+      }
+      
+      if (imageryThreshold) {
+        imageryThreshold.addEventListener('change', (e) => {
+          const controlThreshold = document.getElementById('control-clear-threshold');
+          if (controlThreshold) {
+            controlThreshold.value = e.target.value;
+            document.getElementById('control-threshold-value').textContent = e.target.value;
+          }
+        });
+      }
+      
       // Listen for map events
       map.on('projectRequired', () => {
         panelManager.openPanel('project-modal', 'project-selector-btn');
@@ -229,52 +326,6 @@ class App {
     }
     
     // HANDLERS
-    
-    // Extract data
-    handleExtractData(e) {
-      const currentProjectId = store.get('currentProjectId');
-      if (!currentProjectId) {
-        panelManager.openPanel('project-modal', 'project-selector-btn');
-        return;
-      }
-      
-      const collection = document.getElementById('collection-select').value;
-      const startDate = document.getElementById('start-date').value;
-      const endDate = document.getElementById('end-date').value;
-      const clearThreshold = parseFloat(document.getElementById('clear-threshold').value);
-      
-      if (!startDate || !endDate) {
-        notificationManager.warning('Please select start and end dates');
-        return;
-      }
-      
-      // Show progress container
-      const progressContainer = document.getElementById('extraction-progress-container');
-      if (progressContainer) {
-        progressContainer.classList.add('show');
-      }
-      
-      // Get the project info to retrieve the chip size
-      const apiService = new ApiService();
-      apiService.getProjectInfo(currentProjectId)
-        .then(projectInfo => {
-          const chipSize = projectInfo.chip_size || 64; // Default to 64 if not found
-          
-          // Extract data
-          store.extractData({
-            collection,
-            start_date: startDate,
-            end_date: endDate,
-            chip_size: chipSize,
-            clear_threshold: clearThreshold
-          }).catch(error => {
-            notificationManager.error(`Error starting extraction: ${error.message}`);
-          });
-        })
-        .catch(error => {
-          notificationManager.error(`Error getting project info: ${error.message}`);
-        });
-    }
     
     // Load visualization
     handleLoadVisualization(e) {
@@ -659,12 +710,99 @@ class App {
         
         // Change back to satellite style
         map.changeMapStyle('mapbox://styles/mapbox/satellite-v9', true);
-        
-        notificationManager.info('Satellite imagery removed');
       } catch (error) {
         console.error('Error removing imagery:', error);
-        notificationManager.error('Error removing satellite imagery');
       }
+    }
+    
+    // Load map imagery from control panel
+    handleControlLoadImagery(e) {
+      e.preventDefault();
+      
+      const collection = document.getElementById('control-collection').value;
+      const startDate = document.getElementById('control-start-date').value;
+      const endDate = document.getElementById('control-end-date').value;
+      const clearThreshold = document.getElementById('control-clear-threshold').value;
+      
+      if (!startDate || !endDate) {
+        return;
+      }
+      
+      // Get the current map bounds
+      const bounds = map.mapInstance.getBounds();
+      
+      // Fetch map imagery from the backend
+      const apiService = new ApiService();
+      apiService.getMapImagery({
+        west: bounds.getWest(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        north: bounds.getNorth(),
+        start_date: startDate,
+        end_date: endDate,
+        collection: collection,
+        clear_threshold: clearThreshold
+      }).then(data => {
+        if (!data.success) {
+          throw new Error(data.message || 'Failed to load map imagery');
+        }
+        
+        // Define the image bounds 
+        const imageBounds = [
+          [data.bounds.west, data.bounds.south], // Southwest coordinates
+          [data.bounds.east, data.bounds.north]  // Northeast coordinates
+        ];
+        
+        // Check if we need to change the map style
+        const currentStyle = map.mapInstance.getStyle().name;
+        if (currentStyle !== 'Light') {
+          // Change to a light style
+          map.changeMapStyle('mapbox://styles/mapbox/light-v10', true);
+          
+          // Listen for style load event and then add imagery
+          map.once('styleLoaded', () => {
+            this.addOrUpdateImagery(data, collection, startDate, endDate, imageBounds);
+          });
+        } else {
+          // Style is already light, just update imagery
+          this.addOrUpdateImagery(data, collection, startDate, endDate, imageBounds);
+        }
+      }).catch(error => {
+        console.error(`Error loading imagery: ${error.message}`);
+      });
+    }
+    
+    // Helper method to add or update imagery layer
+    addOrUpdateImagery(data, collection, startDate, endDate, imageBounds) {
+      // Check if imagery layer exists and remove it if so
+      if (map.mapInstance.getLayer('sentinel-imagery')) {
+        map.mapInstance.removeLayer('sentinel-imagery');
+      }
+      
+      if (map.mapInstance.getSource('sentinel-imagery')) {
+        map.mapInstance.removeSource('sentinel-imagery');
+      }
+      
+      // Add the raster tiles as a source
+      map.mapInstance.addSource('sentinel-imagery', {
+        type: 'raster',
+        tiles: [data.tile_url],
+        tileSize: 256,
+        attribution: `Sentinel ${collection === 'S2' ? '2' : '1'} Imagery (${startDate} to ${endDate})`
+      });
+      
+      // Add the raster layer (make sure it's below the points)
+      map.mapInstance.addLayer({
+        id: 'sentinel-imagery',
+        type: 'raster',
+        source: 'sentinel-imagery',
+        paint: {
+          'raster-opacity': 1.0
+        }
+      }, 'point-positive'); // Add below the points layers
+      
+      // Zoom to the imagery bounds
+      map.mapInstance.fitBounds(imageBounds, { padding: 50 });
     }
     
     // Update visualization legend
