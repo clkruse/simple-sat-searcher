@@ -20,15 +20,13 @@ simple-sat-searcher/
 │   ├── js/                      # JavaScript code
 │   └── styles/                  # CSS styles
 │
-├── backend/                     # Server-side application
-│   ├── app.py                   # Application entry point
-│   ├── config.py                # Configuration settings
-│   ├── api/                     # API endpoints
-│   ├── models/                  # Model-related functionality
-│   ├── services/                # Services and utilities
-│   └── utils/                   # Utility functions
-│
-└── docs/                        # Documentation (if applicable)
+└── backend/                     # Server-side application
+    ├── app.py                   # Application entry point
+    ├── config.py                # Configuration settings
+    ├── api/                     # API endpoints
+    ├── models/                  # Model-related functionality
+    ├── services/                # Services and utilities
+    └── utils/                   # Utility functions
 ```
 
 ## Prerequisites
