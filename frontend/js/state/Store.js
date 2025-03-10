@@ -416,6 +416,12 @@ class Store extends EventEmitter {
     // Reload models list
     this.loadModels();
     
+    // Re-enable train button
+    const trainBtn = document.getElementById('train-btn');
+    if (trainBtn) {
+      trainBtn.disabled = false;
+    }
+    
     // Show success notification
     this.emit('notification', {
       type: 'success',
@@ -434,6 +440,12 @@ class Store extends EventEmitter {
       totalEpochs: 0,
       logs: {}
     });
+    
+    // Re-enable train button
+    const trainBtn = document.getElementById('train-btn');
+    if (trainBtn) {
+      trainBtn.disabled = false;
+    }
     
     // Show error notification
     this.emit('notification', {
@@ -509,6 +521,12 @@ class Store extends EventEmitter {
       message: 'Deployment complete!'
     });
     
+    // Re-enable deploy button
+    const deployBtn = document.getElementById('deploy-btn');
+    if (deployBtn) {
+      deployBtn.disabled = false;
+    }
+    
     // Emit an event with the predictions
     this.emit('deploymentComplete', {
       predictions: data.predictions,
@@ -529,6 +547,12 @@ class Store extends EventEmitter {
       percent: 0,
       message: `Error: ${data.error}`
     });
+    
+    // Re-enable deploy button
+    const deployBtn = document.getElementById('deploy-btn');
+    if (deployBtn) {
+      deployBtn.disabled = false;
+    }
     
     // Show error notification
     this.emit('notification', {

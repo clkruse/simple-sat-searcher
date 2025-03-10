@@ -310,14 +310,14 @@ class PanelManager extends EventEmitter {
       return;
     }
     
-    // Find unified files by checking the unified flag or extracted_data.nc in the filename
-    const unifiedExtractions = extractions.filter(extraction => 
-      extraction.unified === true || 
+    // Find project data files by checking the is_project_data flag or extracted_data.nc in the filename
+    const projectDataFiles = extractions.filter(extraction => 
+      extraction.is_project_data === true || 
       (extraction.filename && extraction.filename.includes('extracted_data.nc'))
     );
     
-    if (unifiedExtractions.length > 0) {
-      // Hide the extraction selector and use the unified file automatically
+    if (projectDataFiles.length > 0) {
+      // Hide the extraction selector and use the project data file automatically
       const container = document.getElementById('visualization-extraction-container');
       if (container) container.style.display = 'none';
       
@@ -327,10 +327,10 @@ class PanelManager extends EventEmitter {
         visualizationType.value = 'true_color';
       }
       
-      // Add a hidden option with the unified file
+      // Add a hidden option with the project data file
       visualizationSelect.innerHTML = '';
       const option = document.createElement('option');
-      option.value = unifiedExtractions[0].filename;
+      option.value = projectDataFiles[0].filename;
       option.selected = true;
       visualizationSelect.appendChild(option);
       
@@ -480,39 +480,32 @@ class PanelManager extends EventEmitter {
       return;
     }
     
-    // Find unified files by checking the unified flag or the filename
-    const unifiedExtractions = extractions.filter(extraction => 
-      extraction.unified === true || 
+    // Find project data files by checking the is_project_data flag or extracted_data.nc in the filename
+    const projectDataFiles = extractions.filter(extraction => 
+      extraction.is_project_data === true || 
       (extraction.filename && extraction.filename.includes('extracted_data.nc'))
     );
     
     const trainingExtractionsContainer = document.getElementById('training-extractions-container');
     
-    if (unifiedExtractions.length > 0) {
-      // Hide the extraction selector and use the unified file automatically
+    if (projectDataFiles.length > 0) {
+      // Hide the extraction selector and use the project data file automatically
       if (trainingExtractionsContainer) trainingExtractionsContainer.style.display = 'none';
       
-      // Add a hidden option with the unified file
+      // Add a hidden option with the project data file
       trainingSelect.innerHTML = '';
       const option = document.createElement('option');
-      option.value = unifiedExtractions[0].filename;
+      option.value = projectDataFiles[0].filename;
       option.selected = true;
       trainingSelect.appendChild(option);
       
-      // Show a message about using unified data
+      // Show a message about using project data
       const trainingInfo = document.querySelector('.model-training-info');
-      if (trainingInfo) {
-        trainingInfo.textContent = 'Using unified project data for training';
-        trainingInfo.style.display = 'block';
-        trainingInfo.style.fontWeight = 'bold';
-        trainingInfo.style.marginBottom = '15px';
-        trainingInfo.style.color = '#2c7be5';
-      }
       
       // Update the train button text
       const trainButton = document.getElementById('train-btn');
       if (trainButton) {
-        trainButton.textContent = 'Train Model on Unified Data';
+        trainButton.textContent = 'Train Model';
       }
     } else {
       // Fall back to the dropdown selection
