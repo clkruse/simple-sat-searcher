@@ -110,20 +110,6 @@ simple-sat-searcher/
 User Input → Point Labeling → Data Extraction → Model Training → Model Deployment → Predictions
 ```
 
-## Technologies Used
-
-### Frontend
-- Mapbox GL JS for interactive maps
-- Modern JavaScript (ES6+)
-- Socket.IO for real-time communication
-- CSS3 for styling
-
-### Backend
-- Flask for API endpoints
-- Google Earth Engine for satellite data
-- TensorFlow/PyTorch for machine learning
-- Socket.IO for real-time updates
-
 ## Development
 
 ### Setting Up Development Environment
