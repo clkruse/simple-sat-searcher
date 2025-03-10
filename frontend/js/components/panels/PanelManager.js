@@ -37,6 +37,9 @@ class PanelManager extends EventEmitter {
     
     // Initial state - hide all panels
     this.closeAllPanels();
+    
+    // Listen for point count changes and update the UI in real-time
+    store.on('pointCounts', this.updatePointCountsDisplay.bind(this));
   }
   
   openPanel(panelId, buttonId) {
@@ -72,6 +75,11 @@ class PanelManager extends EventEmitter {
       
       // Run any panel-specific initialization
       this.runPanelInitializer(panelId);
+      
+      // If opening the control panel, update point counts
+      if (panelId === 'control-panel') {
+        this.updatePointCountsDisplay(store.get('pointCounts'));
+      }
       
       // Emit event for other components
       this.emit('panel:opened', { panelId, buttonId });
@@ -192,9 +200,7 @@ class PanelManager extends EventEmitter {
     document.getElementById('project-name').textContent = store.get('currentProjectName');
     
     // Update point counts
-    const counts = store.get('pointCounts');
-    document.getElementById('positive-count').textContent = counts.positive;
-    document.getElementById('negative-count').textContent = counts.negative;
+    this.updatePointCountsDisplay(store.get('pointCounts'));
   }
   
   initializeExtractPanel() {
@@ -583,6 +589,12 @@ class PanelManager extends EventEmitter {
     if (endElement) {
       endElement.value = formatDate(endDate);
     }
+  }
+  
+  // Update point counts display in the control panel
+  updatePointCountsDisplay(counts) {
+    document.getElementById('positive-count').textContent = counts.positive;
+    document.getElementById('negative-count').textContent = counts.negative;
   }
 }
 

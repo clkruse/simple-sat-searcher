@@ -108,7 +108,7 @@ class Map extends EventEmitter {
       this.mapInstance.getCanvas().style.cursor = '';
     });
     
-    // Add point on click
+    // Add point on click (left click for positive, right click for negative)
     this.mapInstance.on('click', (e) => {
       const currentProjectId = store.get('currentProjectId');
       if (!currentProjectId) {
@@ -116,32 +116,49 @@ class Map extends EventEmitter {
         return;
       }
       
-      const pointClass = document.querySelector('input[name="point-class"]:checked').value;
-      this.addPoint(e.lngLat, pointClass);
+      // Check if Clear Points mode is active
+      const clearPointsActive = document.getElementById('clear-btn').classList.contains('active');
+      
+      if (clearPointsActive) {
+        // In Clear Points mode, clicking on a point removes it
+        const layers = ['point-positive', 'point-negative'].filter(layerId => 
+          this.mapInstance.getLayer(layerId)
+        );
+        
+        if (layers.length === 0) return;
+        
+        const features = this.mapInstance.queryRenderedFeatures(e.point, {
+          layers: layers
+        });
+        
+        // If a point was clicked, remove it
+        if (features.length > 0) {
+          const pointId = features[0].properties.id;
+          this.removePoint(pointId);
+        }
+      } else {
+        // Normal mode: left click adds a positive point
+        this.addPoint(e.lngLat, 'positive');
+      }
     });
     
-    // Remove point on right click
+    // Right click adds a negative point (when not in Clear Points mode)
     this.mapInstance.on('contextmenu', (e) => {
-      if (!store.get('currentProjectId')) {
+      const currentProjectId = store.get('currentProjectId');
+      if (!currentProjectId) {
         return;
       }
       
-      // Get features at the clicked point
-      const layers = ['point-positive', 'point-negative'].filter(layerId => 
-        this.mapInstance.getLayer(layerId)
-      );
+      // Check if Clear Points mode is active
+      const clearPointsActive = document.getElementById('clear-btn').classList.contains('active');
       
-      if (layers.length === 0) return;
-      
-      const features = this.mapInstance.queryRenderedFeatures(e.point, {
-        layers: layers
-      });
-      
-      // If a point was clicked, remove it
-      if (features.length > 0) {
-        const pointId = features[0].properties.id;
-        this.removePoint(pointId);
+      if (!clearPointsActive) {
+        // Add negative point on right click
+        this.addPoint(e.lngLat, 'negative');
       }
+      
+      // Prevent the default context menu
+      e.preventDefault();
     });
   }
   

@@ -92,7 +92,8 @@ body {
 }
 
 .sidebar-item.active {
-    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.2);
 }
 
 /* Hide text in sidebar items until hover */
@@ -946,18 +947,18 @@ body {
 /* Notification styling */
 .notification {
     position: fixed;
-    bottom: 30px;
-    right: 30px;
+    top: 20px;
+    right: 20px;
     padding: 12px 20px;
+    border-radius: 4px;
     background-color: #333;
     color: white;
-    border-radius: 6px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
     opacity: 0;
-    transform: translateY(20px);
-    transition: all 0.3s ease;
-    z-index: 9999;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-    max-width: 350px;
+    transform: translateY(-20px);
+    transition: opacity 0.3s, transform 0.3s;
+    max-width: 300px;
 }
 
 .notification.show {
@@ -966,23 +967,19 @@ body {
 }
 
 .notification.info {
-    background-color: #2196F3;
-    border-left: 5px solid #0d47a1;
+    background-color: #3498db;
 }
 
 .notification.success {
-    background-color: #4CAF50;
-    border-left: 5px solid #1b5e20;
+    background-color: #2ecc71;
 }
 
 .notification.error {
-    background-color: #F44336;
-    border-left: 5px solid #b71c1c;
+    background-color: #e74c3c;
 }
 
 .notification.warning {
-    background-color: #FF9800;
-    border-left: 5px solid #e65100;
+    background-color: #f39c12;
 }
 
 /* Mobile responsiveness */
@@ -1203,4 +1200,23 @@ body {
 
 .log-entry.debug {
     color: #7f8c8d;
+}
+
+/* Special styling for Clear Points button when active */
+#clear-btn.active {
+    color: #fff;
+    background-color: #e74c3c;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(231, 76, 60, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(231, 76, 60, 0);
+    }
 }

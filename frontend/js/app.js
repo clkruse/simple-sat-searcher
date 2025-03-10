@@ -11,6 +11,9 @@ class App {
   constructor() {
     // Initialize all modules and connect events
     this.initialize();
+    
+    // Initialize notification system
+    this.notificationTimeout = null;
   }
   
   initialize() {
@@ -366,10 +369,17 @@ class App {
     
     // Clear points
     handleClearPoints(e) {
-      if (store.get('points').length === 0) return;
+      const clearBtn = document.getElementById('clear-btn');
       
-      if (confirm('Clear all points?')) {
-        store.clearPoints();
+      // Toggle the active state of the Clear Points button
+      if (clearBtn.classList.contains('active')) {
+        // Deactivate Clear Points mode
+        clearBtn.classList.remove('active');
+        this.showNotification('Point removal mode disabled', 'info');
+      } else {
+        // Activate Clear Points mode
+        clearBtn.classList.add('active');
+        this.showNotification('Click on points to remove them', 'info');
       }
     }
     
@@ -742,6 +752,34 @@ class App {
           </div>
         `;
       }
+    }
+    
+    // Show a notification to the user
+    showNotification(message, type = 'info') {
+      // Clear any existing notification timeout
+      if (this.notificationTimeout) {
+        clearTimeout(this.notificationTimeout);
+      }
+      
+      // Get or create notification element
+      let notification = document.getElementById('notification');
+      if (!notification) {
+        notification = document.createElement('div');
+        notification.id = 'notification';
+        document.body.appendChild(notification);
+      }
+      
+      // Set notification content and type
+      notification.textContent = message;
+      notification.className = `notification ${type}`;
+      
+      // Show the notification
+      notification.classList.add('show');
+      
+      // Hide after 3 seconds
+      this.notificationTimeout = setTimeout(() => {
+        notification.classList.remove('show');
+      }, 3000);
     }
   }
   
