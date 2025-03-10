@@ -270,6 +270,11 @@ class PanelManager extends EventEmitter {
     store.loadModels().then(models => {
       this.updateDeploymentModels(models);
     });
+    
+    // Load previous deployments
+    store.loadPredictions().then(predictions => {
+      this.updateDeploymentsList(predictions);
+    });
   }
   
   initializeMapImageryPanel() {
@@ -571,6 +576,68 @@ class PanelManager extends EventEmitter {
   updatePointCountsDisplay(counts) {
     document.getElementById('positive-count').textContent = counts.positive;
     document.getElementById('negative-count').textContent = counts.negative;
+  }
+  
+  // Helper method to update deployments list
+  updateDeploymentsList(deployments) {
+    const deploymentsList = document.getElementById('deployments-list');
+    const previousDeployments = document.getElementById('previous-deployments');
+    
+    if (!deploymentsList) return;
+    
+    if (!deployments || deployments.length === 0) {
+      deploymentsList.innerHTML = '<div class="loading">No previous deployments found.</div>';
+      if (previousDeployments) previousDeployments.classList.add('hidden');
+      return;
+    }
+    
+    deploymentsList.innerHTML = '';
+    deployments.forEach(deployment => {
+      const item = document.createElement('div');
+      item.className = 'deployment-item';
+      item.dataset.id = deployment.id;
+      
+      // Format the date for display
+      const deploymentDate = new Date(deployment.created);
+      const formattedDate = deploymentDate.toLocaleDateString() + ' ' + 
+                           deploymentDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      // Format the date range
+      const startDate = deployment.start_date ? new Date(deployment.start_date).toLocaleDateString() : 'Unknown';
+      const endDate = deployment.end_date ? new Date(deployment.end_date).toLocaleDateString() : 'Unknown';
+      
+      item.innerHTML = `
+        <div class="deployment-item-header">
+          <div class="deployment-title">Model: ${deployment.model_name || 'Unknown'}</div>
+          <div class="deployment-date">${formattedDate}</div>
+        </div>
+        <div class="deployment-details">
+          <p>Date Range: ${startDate} to ${endDate}</p>
+          <p>Predictions: ${deployment.feature_count}</p>
+        </div>
+      `;
+      
+      // Add click event to load this deployment
+      item.addEventListener('click', () => {
+        // Remove active class from all items
+        document.querySelectorAll('.deployment-item').forEach(el => {
+          el.classList.remove('active');
+        });
+        
+        // Add active class to this item
+        item.classList.add('active');
+        
+        // Load the prediction
+        store.loadPrediction(deployment.id).catch(error => {
+          console.error('Error loading prediction:', error);
+        });
+      });
+      
+      deploymentsList.appendChild(item);
+    });
+    
+    // Show the deployments section
+    if (previousDeployments) previousDeployments.classList.remove('hidden');
   }
 }
 

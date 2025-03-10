@@ -560,6 +560,64 @@ class Store extends EventEmitter {
       message: `Deployment error: ${data.error}`
     });
   }
+  
+  /**
+   * Load predictions for the current project
+   * @returns {Promise<Array>} - List of predictions
+   */
+  async loadPredictions() {
+    try {
+      const projectId = this.get('currentProjectId');
+      if (!projectId) {
+        return [];
+      }
+      
+      const response = await this.apiService.listPredictions(projectId);
+      if (response.success) {
+        this.set('predictions', response.predictions);
+        this.emit('predictionsLoaded', response.predictions);
+        return response.predictions;
+      } else {
+        console.error('Error loading predictions:', response.message);
+        return [];
+      }
+    } catch (error) {
+      console.error('Error loading predictions:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Load a specific prediction by ID
+   * @param {string} predictionId - Prediction ID
+   * @returns {Promise<Object>} - Prediction data
+   */
+  async loadPrediction(predictionId) {
+    try {
+      const projectId = this.get('currentProjectId');
+      if (!projectId) {
+        throw new Error('No project selected');
+      }
+      
+      const response = await this.apiService.getPrediction(projectId, predictionId);
+      if (response.success) {
+        this.emit('predictionLoaded', {
+          prediction: response.prediction,
+          boundingBox: response.bounding_box
+        });
+        return response;
+      } else {
+        throw new Error(response.message);
+      }
+    } catch (error) {
+      console.error('Error loading prediction:', error);
+      this.emit('notification', {
+        type: 'error',
+        message: `Error loading prediction: ${error.message}`
+      });
+      throw error;
+    }
+  }
 }
 
 // Create a singleton instance

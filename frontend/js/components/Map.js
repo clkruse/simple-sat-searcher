@@ -164,13 +164,13 @@ class Map extends EventEmitter {
   }
   
   setupStateListeners() {
-    // Update map when points change
-    store.on('points', (points) => {
+    // Listen for point changes
+    store.on('pointsChanged', points => {
       this.updatePointsOnMap(points);
     });
     
     // Auto-fit map when points are loaded
-    store.on('points:loaded', (points) => {
+    store.on('points:loaded', points => {
       if (points && points.length > 0) {
         this.fitToPoints(points);
         
@@ -183,7 +183,7 @@ class Map extends EventEmitter {
     });
     
     // Listen for project selection to visualize patches
-    store.on('currentProjectId', (projectId) => {
+    store.on('currentProjectId', projectId => {
       if (projectId) {
         // Small delay to allow points to load first
         setTimeout(() => {
@@ -195,17 +195,24 @@ class Map extends EventEmitter {
       }
     });
     
-    // Handle deployment updates
-    store.on('deploymentIncrementalUpdate', (data) => {
-      if (data.predictions) {
-        this.updateDeploymentPredictions(data.predictions, data.boundingBox);
-      }
+    // Listen for visualization changes
+    store.on('visualizationChanged', data => {
+      this.displayPatches(data.patches, data.visualizationType);
     });
     
-    store.on('deploymentComplete', (data) => {
-      if (data.predictions) {
-        this.displayDeploymentPredictions(data.predictions, data.boundingBox);
-      }
+    // Listen for incremental deployment updates
+    store.on('deploymentIncrementalUpdate', data => {
+      this.updateDeploymentPredictions(data.predictions, data.boundingBox);
+    });
+    
+    // Listen for deployment completion
+    store.on('deploymentComplete', data => {
+      this.displayDeploymentPredictions(data.predictions, data.boundingBox);
+    });
+    
+    // Listen for prediction loaded
+    store.on('predictionLoaded', data => {
+      this.displayDeploymentPredictions(data.prediction, data.boundingBox);
     });
   }
   
@@ -690,10 +697,11 @@ class Map extends EventEmitter {
     // Add the new predictions to the existing ones
     const updatedFeatures = [...currentData.features, ...predictions.features];
     
-    // Update the source data
+    // Update the source data, preserving metadata properties
     source.setData({
       type: 'FeatureCollection',
-      features: updatedFeatures
+      features: updatedFeatures,
+      properties: predictions.properties || currentData.properties
     });
   }
   
@@ -817,17 +825,20 @@ class Map extends EventEmitter {
   
   // Cleanup map imagery
   cleanupMapImagery() {
-    try {
-      // Only clean up the tile layer approach now
-      if (this.mapInstance.getLayer('sentinel-imagery')) {
-        this.mapInstance.removeLayer('sentinel-imagery');
-      }
-      
-      if (this.mapInstance.getSource('sentinel-imagery')) {
-        this.mapInstance.removeSource('sentinel-imagery');
-      }
-    } catch (error) {
-      console.error('Error cleaning up imagery:', error);
+    // Remove any existing prediction layers and sources
+    if (this.mapInstance.getLayer('deployment-predictions-line')) {
+      this.mapInstance.removeLayer('deployment-predictions-line');
+    }
+    if (this.mapInstance.getSource('deployment-predictions')) {
+      this.mapInstance.removeSource('deployment-predictions');
+    }
+    
+    // Remove any existing bounding box
+    if (this.mapInstance.getLayer('deployment-bbox')) {
+      this.mapInstance.removeLayer('deployment-bbox');
+    }
+    if (this.mapInstance.getSource('deployment-bbox')) {
+      this.mapInstance.removeSource('deployment-bbox');
     }
   }
   

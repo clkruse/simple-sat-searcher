@@ -6,6 +6,8 @@ import os
 import logging
 import json
 import traceback
+from datetime import datetime
+import geopandas as gpd
 
 from config import PROJECTS_DIR
 from services.deploy_service import ModelDeployer
@@ -83,6 +85,7 @@ def register_deployment_endpoints(app, socketio):
                 tile_padding=tile_padding,
                 batch_size=batch_size,
                 tries=tries,
+                model_name=model_name,
                 progress_callback=lambda current, total, incremental_predictions=None, bounding_box=None: socketio.emit('deployment_progress', {
                     'project_id': project_id,
                     'progress': current / total,
@@ -125,7 +128,11 @@ def register_deployment_endpoints(app, socketio):
                     'type': 'Polygon',
                     'coordinates': bounds['coordinates']  # Use the coordinates directly
                 },
-                'properties': {}
+                'properties': {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'model_name': model_name
+                }
             }
             
             app.logger.info(f"Created bounding box: {bounding_box}")  # Debug log
@@ -143,7 +150,11 @@ def register_deployment_endpoints(app, socketio):
                             bounding_box = {
                                 "type": "Feature",
                                 "geometry": region,
-                                "properties": {}
+                                "properties": {
+                                    'start_date': start_date,
+                                    'end_date': end_date,
+                                    'model_name': model_name
+                                }
                             }
                         elif 'west' in region and 'north' in region and 'east' in region and 'south' in region:
                             # It's a bounds object with west/east/north/south
@@ -161,7 +172,11 @@ def register_deployment_endpoints(app, socketio):
                                         ]
                                     ]
                                 },
-                                "properties": {}
+                                "properties": {
+                                    'start_date': start_date,
+                                    'end_date': end_date,
+                                    'model_name': model_name
+                                }
                             }
                         else:
                             # Can't determine format, use default
@@ -177,7 +192,11 @@ def register_deployment_endpoints(app, socketio):
                             "type": "Polygon",
                             "coordinates": [[[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1], [-0.1, -0.1]]]
                         },
-                        "properties": {}
+                        "properties": {
+                            'start_date': start_date,
+                            'end_date': end_date,
+                            'model_name': model_name
+                        }
                     }
             
             # Emit completion event
@@ -308,10 +327,162 @@ def register_deployment_endpoints(app, socketio):
             logger.error(f"Error generating deployment tiles: {str(e)}")
             return jsonify({"success": False, "message": str(e)}), 500
 
+    @app.route('/get_predictions', methods=['GET'])
+    def get_predictions():
+        """Get a list of previous predictions for a project."""
+        try:
+            project_id = request.args.get('project_id')
+            if not project_id:
+                return jsonify({
+                    'success': False,
+                    'message': 'Missing project_id parameter'
+                })
+            
+            # Get the predictions directory
+            predictions_dir = os.path.join(PROJECTS_DIR, project_id, 'predictions')
+            if not os.path.exists(predictions_dir):
+                return jsonify({
+                    'success': True,
+                    'predictions': []
+                })
+            
+            # List all prediction files
+            prediction_files = [f for f in os.listdir(predictions_dir) if f.endswith('.geojson')]
+            predictions = []
+            
+            for filename in prediction_files:
+                file_path = os.path.join(predictions_dir, filename)
+                try:
+                    # Read the GeoJSON file
+                    with open(file_path, 'r') as f:
+                        geojson = json.load(f)
+                    
+                    # Extract metadata from the file
+                    properties = geojson.get('properties', {})
+                    feature_count = len(geojson.get('features', []))
+                    
+                    # Get file creation time
+                    created = datetime.fromtimestamp(os.path.getctime(file_path)).isoformat()
+                    
+                    # Extract timestamp from filename
+                    timestamp = filename.replace('predictions_', '').replace('.geojson', '')
+                    
+                    predictions.append({
+                        'id': timestamp,
+                        'filename': filename,
+                        'created': created,
+                        'feature_count': feature_count,
+                        'model_name': properties.get('model_name', 'Unknown'),
+                        'start_date': properties.get('start_date', ''),
+                        'end_date': properties.get('end_date', '')
+                    })
+                except Exception as e:
+                    app.logger.error(f"Error reading prediction file {filename}: {str(e)}")
+            
+            # Sort predictions by creation time (newest first)
+            predictions.sort(key=lambda x: x['created'], reverse=True)
+            
+            return jsonify({
+                'success': True,
+                'predictions': predictions
+            })
+            
+        except Exception as e:
+            app.logger.error(f"Error getting predictions: {str(e)}")
+            return jsonify({
+                'success': False,
+                'message': f"Error getting predictions: {str(e)}"
+            })
+    
+    @app.route('/get_prediction', methods=['GET'])
+    def get_prediction():
+        """Get a specific prediction by ID."""
+        try:
+            project_id = request.args.get('project_id')
+            prediction_id = request.args.get('prediction_id')
+            
+            if not project_id or not prediction_id:
+                return jsonify({
+                    'success': False,
+                    'message': 'Missing required parameters'
+                })
+            
+            # Get the prediction file path
+            predictions_dir = os.path.join(PROJECTS_DIR, project_id, 'predictions')
+            file_path = os.path.join(predictions_dir, f'predictions_{prediction_id}.geojson')
+            
+            if not os.path.exists(file_path):
+                return jsonify({
+                    'success': False,
+                    'message': f'Prediction file not found: {file_path}'
+                })
+            
+            # Read the GeoJSON file
+            with open(file_path, 'r') as f:
+                geojson = json.load(f)
+            
+            # Get the properties which should contain the original bounding box information
+            properties = geojson.get('properties', {})
+            
+            # Create a bounding box from the properties
+            bounds = None
+            
+            # If the file has a 'region_bounds' property, use that for the bounding box
+            if 'region_bounds' in properties:
+                bounds = {
+                    'type': 'Feature',
+                    'geometry': {
+                        'type': 'Polygon',
+                        'coordinates': properties['region_bounds']['coordinates']
+                    },
+                    'properties': properties
+                }
+            # Otherwise, calculate bounds from features as a fallback
+            elif geojson.get('features'):
+                try:
+                    # Create a GeoDataFrame from the features
+                    gdf = gpd.GeoDataFrame.from_features(geojson)
+                    if not gdf.empty:
+                        # Get the total bounds
+                        minx, miny, maxx, maxy = gdf.total_bounds
+                        bounds = {
+                            'type': 'Feature',
+                            'geometry': {
+                                'type': 'Polygon',
+                                'coordinates': [
+                                    [
+                                        [minx, miny],
+                                        [maxx, miny],
+                                        [maxx, maxy],
+                                        [minx, maxy],
+                                        [minx, miny]
+                                    ]
+                                ]
+                            },
+                            'properties': properties
+                        }
+                except Exception as e:
+                    app.logger.error(f"Error calculating bounds: {str(e)}")
+            
+            return jsonify({
+                'success': True,
+                'prediction': geojson,
+                'bounding_box': bounds
+            })
+            
+        except Exception as e:
+            app.logger.error(f"Error getting prediction: {str(e)}")
+            return jsonify({
+                'success': False,
+                'message': f"Error getting prediction: {str(e)}"
+            })
+
     # Return routes for documentation purposes
     documented_routes = {
         "deploy_model": "POST /deploy_model - Deploy a trained model to make predictions",
-        "get_deployment_tiles": "GET /get_deployment_tiles - Get tile geometries for deployment"
+        "get_deployment_tiles": "GET /get_deployment_tiles - Get tile geometries for deployment",
+        "get_predictions": "GET /get_predictions - Get a list of previous predictions for a project",
+        "get_prediction": "GET /get_prediction - Get a specific prediction by ID"
     }
     
     return documented_routes

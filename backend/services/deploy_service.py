@@ -321,8 +321,22 @@ class ModelDeployer:
     def make_predictions(self, model, region, start_date, end_date, 
                         pred_threshold=0.5, clear_threshold=0.75,
                         tile_padding=24, batch_size=500, tries=2,
-                        progress_callback=None):
-        """Make predictions using the trained model."""
+                        progress_callback=None, model_name=None):
+        """Make predictions using the trained model.
+        
+        Args:
+            model: The model object to use for predictions
+            region: The region to make predictions on
+            start_date: Start date for satellite imagery
+            end_date: End date for satellite imagery
+            pred_threshold: Threshold for positive predictions
+            clear_threshold: Threshold for cloud-free imagery
+            tile_padding: Padding around tiles in pixels
+            batch_size: Number of tiles to process in parallel
+            tries: Number of retries for Earth Engine requests
+            progress_callback: Callback function for progress updates
+            model_name: Name of the model (from filename)
+        """
         try:
             # Create predictions directory if it doesn't exist
             predictions_dir = os.path.join(PROJECTS_DIR, self.project_id, 'predictions')
@@ -396,6 +410,10 @@ class ModelDeployer:
             all_confidences = []
             processed_tiles = 0
             
+            # Use the provided model_name or a default
+            if model_name is None:
+                model_name = 'deployed_model'
+            
             # Create bounding box as a GeoJSON feature for the region
             bounding_box = {
                 'type': 'Feature',
@@ -403,7 +421,11 @@ class ModelDeployer:
                     'type': 'Polygon',
                     'coordinates': bounds['coordinates']
                 },
-                'properties': {}
+                'properties': {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'model_name': model_name
+                }
             }
             
             # Prepare tile information for parallel processing
@@ -459,7 +481,12 @@ class ModelDeployer:
                                         }
                                     }
                                     for geom, conf in zip(geometries, confidences)
-                                ]
+                                ],
+                                "properties": {
+                                    "start_date": start_date,
+                                    "end_date": end_date,
+                                    "model_name": model_name
+                                }
                             }
                             
                             # Call the progress callback with the new predictions
@@ -483,12 +510,52 @@ class ModelDeployer:
                 
                 # Save predictions to file
                 gdf.to_file(output_file, driver='GeoJSON')
+                
+                # Now add the metadata to the saved GeoJSON file
+                with open(output_file, 'r') as f:
+                    geojson_data = json.load(f)
+                
+                # Add metadata as top-level properties
+                geojson_data["properties"] = {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "model_name": model_name,
+                    "region_bounds": {
+                        "type": "Polygon",
+                        "coordinates": bounds['coordinates']
+                    }
+                }
+                
+                # Write the updated GeoJSON back to the file
+                with open(output_file, 'w') as f:
+                    json.dump(geojson_data, f)
+                
                 self.logger.info(f"Saved {len(gdf)} predictions as bounding boxes to {output_file}")
                 return gdf
             else:
                 self.logger.info("No predictions met the confidence threshold.")
                 # Return empty GeoDataFrame with correct structure that will properly convert to GeoJSON
                 empty_gdf = gpd.GeoDataFrame(columns=['geometry', 'confidence'], geometry='geometry', crs="EPSG:4326")
+                
+                # Create an empty GeoJSON with metadata
+                empty_geojson = {
+                    "type": "FeatureCollection",
+                    "features": [],
+                    "properties": {
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "model_name": model_name,
+                        "region_bounds": {
+                            "type": "Polygon",
+                            "coordinates": bounds['coordinates']
+                        }
+                    }
+                }
+                
+                # Save the empty GeoJSON with metadata
+                with open(output_file, 'w') as f:
+                    json.dump(empty_geojson, f)
+                
                 return empty_gdf
                 
         except Exception as e:

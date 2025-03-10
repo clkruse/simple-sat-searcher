@@ -1235,3 +1235,76 @@ body {
     color: #17a2b8;
     margin-right: 8px;
 }
+
+/* Previous deployments section */
+#previous-deployments {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+#previous-deployments h3 {
+    font-size: 16px;
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.deployments-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.deployment-item {
+    background-color: #f9f9f9;
+    border-radius: 6px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.deployment-item:hover {
+    background-color: #f0f0f0;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+}
+
+.deployment-item.active {
+    background-color: #e6f7ff;
+    border-left: 3px solid #1890ff;
+}
+
+.deployment-item-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.deployment-title {
+    font-weight: 600;
+    color: #333;
+}
+
+.deployment-date {
+    font-size: 12px;
+    color: #666;
+}
+
+.deployment-details {
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 8px;
+}
+
+.deployment-details p {
+    margin: 4px 0;
+}
+
+.deployment-metrics {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #666;
+}

@@ -207,6 +207,28 @@ class ApiService {
   async extractPointData(data) {
     return this.post('extract_point_data', data);
   }
+  
+  /**
+   * Get a list of previous predictions for a project
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Object>} - JSON response with predictions list
+   */
+  async listPredictions(projectId) {
+    return this.get('get_predictions', { project_id: projectId });
+  }
+  
+  /**
+   * Get a specific prediction by ID
+   * @param {string} projectId - Project ID
+   * @param {string} predictionId - Prediction ID
+   * @returns {Promise<Object>} - JSON response with prediction data
+   */
+  async getPrediction(projectId, predictionId) {
+    return this.get('get_prediction', { 
+      project_id: projectId,
+      prediction_id: predictionId
+    });
+  }
 }
 
 export { ApiService };
