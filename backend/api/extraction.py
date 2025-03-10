@@ -331,16 +331,16 @@ def register_extraction_endpoints(app, socketio):
             if len(nc_files) == 0:
                 return jsonify({"success": True, "extractions": []})
             
-            # Look for unified data files
+            # Look for project data files
             extractions = []
             
-            # Look for any file with "extracted_data.nc" in the name - these are unified files
-            unified_files = [f for f in nc_files if "extracted_data.nc" in f]
-            logger.info(f"Found {len(unified_files)} unified files: {unified_files}")
+            # Look for any file with "extracted_data.nc" in the name - these are project data files
+            project_data_files = [f for f in nc_files if "extracted_data.nc" in f]
+            logger.info(f"Found {len(project_data_files)} project data files: {project_data_files}")
             
-            if unified_files:
-                # Process any unified data files first
-                for nc_file in unified_files:
+            if project_data_files:
+                # Process project data files first
+                for nc_file in project_data_files:
                     # Find corresponding metadata file
                     base_name = nc_file.rsplit('.', 1)[0]
                     metadata_file = f"{base_name}_metadata.json"
@@ -355,7 +355,7 @@ def register_extraction_endpoints(app, socketio):
                         with open(metadata_path, 'r') as f:
                             metadata = json.load(f)
                         
-                        # For unified files, use the last_updated field
+                        # For project data files, use the last_updated field
                         last_updated = metadata.get('last_updated', '')
                         collection = metadata.get('collection', '')
                         start_date = metadata.get('start_date', '')
@@ -378,13 +378,13 @@ def register_extraction_endpoints(app, socketio):
                         'start_date': start_date,
                         'end_date': end_date,
                         'num_chips': num_chips,
-                        'unified': True,
+                        'is_project_data': True,
                         'file_size_mb': round(file_size, 2)
                     }
                     extractions.append(extraction_data)
-                    logger.info(f"Added unified file to extractions: {nc_file}")
+                    logger.info(f"Added project data file to extractions: {nc_file}")
                 
-                # If we found unified files, just return those and skip legacy files
+                # If we found project data files, just return those and skip legacy files
                 if extractions:
                     # Sort by creation time, most recent first
                     extractions.sort(key=lambda x: x.get('last_updated', x.get('created', '')), reverse=True)
@@ -394,7 +394,7 @@ def register_extraction_endpoints(app, socketio):
                         "extractions": extractions
                     })
             
-            # If no unified files found, process legacy files
+            # If no project data files found, process legacy files
             legacy_files = [f for f in nc_files if "extracted_data.nc" not in f]
             logger.info(f"Processing {len(legacy_files)} legacy files")
             
@@ -419,14 +419,14 @@ def register_extraction_endpoints(app, socketio):
                         'start_date': metadata.get('start_date', ''),
                         'end_date': metadata.get('end_date', ''),
                         'num_chips': metadata.get('num_chips', 0),
-                        'unified': False,
+                        'is_project_data': False,
                         'file_size_mb': round(file_size, 2)
                     }
                     extractions.append(extraction_data)
             
             logger.info(f"Returning {len(extractions)} extractions:")
             for ext in extractions:
-                logger.info(f"  - {ext['filename']} (unified: {ext['unified']})")
+                logger.info(f"  - {ext['filename']} (is_project_data: {ext['is_project_data']})")
             
             # Sort by creation time, most recent first
             extractions.sort(key=lambda x: x.get('last_updated', x.get('extraction_time', x.get('created', ''))), reverse=True)
@@ -464,20 +464,20 @@ def register_extraction_endpoints(app, socketio):
             if not os.path.exists(extracted_dir):
                 return jsonify({"success": False, "message": "No extracted data found"}), 404
             
-            # If no specific file is provided, look for unified data file
+            # If no specific file is provided, look for project data file
             if not extraction_file:
                 # Get all .nc files
                 nc_files = [f for f in os.listdir(extracted_dir) if f.endswith('.nc')]
                 
-                # Look for any file with "extracted_data.nc" in the name - these are unified files
-                unified_files = [f for f in nc_files if "extracted_data.nc" in f]
+                # Look for any file with "extracted_data.nc" in the name - these are project data files
+                project_data_files = [f for f in nc_files if "extracted_data.nc" in f]
                 
-                if unified_files:
+                if project_data_files:
                     # Sort by modification time (most recent first)
-                    unified_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)
-                    extraction_file = unified_files[0]
+                    project_data_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)
+                    extraction_file = project_data_files[0]
                 else:
-                    # No unified file found, try to get the most recent file
+                    # No project data file found, try to get the most recent file
                     if nc_files:
                         # Sort by modification time (most recent first)
                         nc_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)

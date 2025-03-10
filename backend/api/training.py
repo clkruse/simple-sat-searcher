@@ -45,22 +45,22 @@ def register_training_endpoints(app, socketio):
             if not os.path.exists(extracted_dir):
                 return jsonify({"success": False, "message": "No extracted data found"}), 404
             
-            # If auto_detect is true or no extraction files are provided, look for unified data files
+            # If auto_detect is true or no extraction files are provided, look for project data files
             if auto_detect:
                 extraction_files = []  # Reset the list
                 # Get all .nc files
                 nc_files = [f for f in os.listdir(extracted_dir) if f.endswith('.nc')]
                 
-                # Look for any file with "extracted_data.nc" in the name - these are unified files
-                unified_files = [f for f in nc_files if "extracted_data.nc" in f]
+                # Look for any file with "extracted_data.nc" in the name - these are project data files
+                project_data_files = [f for f in nc_files if "extracted_data.nc" in f]
                 
-                if unified_files:
+                if project_data_files:
                     # Sort by modification time (most recent first)
-                    unified_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)
-                    extraction_files = [unified_files[0]]
-                    logger.info(f"Auto-detected unified data file: {unified_files[0]}")
+                    project_data_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)
+                    extraction_files = [project_data_files[0]]
+                    logger.info(f"Auto-detected project data file: {project_data_files[0]}")
                 else:
-                    # No unified file found, try to get the most recent file
+                    # No project data file found, try to get the most recent file
                     if nc_files:
                         # Sort by modification time (most recent first)
                         nc_files.sort(key=lambda f: os.path.getmtime(os.path.join(extracted_dir, f)), reverse=True)

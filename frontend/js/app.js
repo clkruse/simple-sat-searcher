@@ -389,16 +389,16 @@ class App {
         return;
       }
       
-      // Check if we're using unified data (dropdown is hidden)
+      // Check if we're using project data (dropdown is hidden)
       const trainingExtractionsContainer = document.getElementById('training-extractions-container');
-      const isUsingUnifiedData = trainingExtractionsContainer && 
+      const isUsingProjectData = trainingExtractionsContainer && 
                                 (trainingExtractionsContainer.style.display === 'none' || 
                                  trainingExtractionsContainer.classList.contains('hidden'));
       
       let selectedExtractions = [];
       
-      if (isUsingUnifiedData) {
-        // When using unified data, get the value directly from the hidden select element
+      if (isUsingProjectData) {
+        // When using project data, get the value directly from the hidden select element
         const trainingSelect = document.getElementById('training-extractions');
         if (trainingSelect && trainingSelect.options && trainingSelect.options.length > 0) {
           selectedExtractions = [trainingSelect.options[0].value];
