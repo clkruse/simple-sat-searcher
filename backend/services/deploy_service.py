@@ -16,13 +16,13 @@ import traceback
 from config import PROJECTS_DIR, BUFFER_SIZES, BAND_IDS, EE_PROJECT
 
 class ModelDeployer:
-    def __init__(self, project_id, collection='S2', chip_size=576, ee_project="earth-engine-ck"):
+    def __init__(self, project_id, collection='S2', chip_size=512, ee_project="earth-engine-ck"):
         """Initialize the model deployer.
         
         Args:
             project_id (str): The project ID
             collection (str): The satellite collection to use (default: 'S2')
-            chip_size (int): Size of each chip in pixels (default: 576)
+            chip_size (int): Size of each chip in pixels (default: 512)
             ee_project (str): Google Earth Engine project ID (default: "earth-engine-ck")
         """
         self.project_id = project_id
@@ -238,22 +238,18 @@ class ModelDeployer:
             chips = []
             chip_geoms = []
             
-            # Calculate valid ranges for chip extraction
-            valid_height = image_data.shape[0] - chip_size
-            valid_width = image_data.shape[1] - chip_size
-            
             # Extract lon/lat info from tile_info
             lon_min, lat_min, lon_max, lat_max = coords[0][0], coords[0][1], coords[2][0], coords[2][1]
             
-            # Calculate pixel sizes in degrees
+            # Calculate pixel sizes in degrees - direct mapping approach
             delta_x = lon_max - lon_min
             delta_y = lat_max - lat_min
             x_per_pixel = delta_x / image_data.shape[1]
             y_per_pixel = delta_y / image_data.shape[0]
             
-            # Extract chips with proper bounds checking
-            for i in range(0, valid_height + 1, stride):
-                for j in range(0, valid_width + 1, stride):
+            # Extract chips with proper bounds checking - using direct pixel-to-coordinate mapping
+            for i in range(0, image_data.shape[0] - chip_size + 1, stride):
+                for j in range(0, image_data.shape[1] - chip_size + 1, stride):
                     # Extract chip
                     patch = image_data[i:i + chip_size, j:j + chip_size]
                     
@@ -261,28 +257,14 @@ class ModelDeployer:
                     if patch.shape != input_shape:
                         continue
                     
-                    # Calculate the center point of the chip
-                    center_lon = lon_min + (j + chip_size / 2) * x_per_pixel
-                    center_lat = lat_max - (i + chip_size / 2) * y_per_pixel
+                    # Calculate coordinates directly using pixel-to-coordinate mapping
+                    # Note: Adjusting for coordinate system orientation
+                    nw_coord = [lon_min + j * x_per_pixel, lat_max - i * y_per_pixel]
+                    ne_coord = [lon_min + (j + chip_size) * x_per_pixel, lat_max - i * y_per_pixel]
+                    se_coord = [lon_min + (j + chip_size) * x_per_pixel, lat_max - (i + chip_size) * y_per_pixel]
+                    sw_coord = [lon_min + j * x_per_pixel, lat_max - (i + chip_size) * y_per_pixel]
                     
-                    # Calculate the actual meters per degree at this latitude
-                    meters_per_degree_lat = 111320  # meters per degree latitude (approximately constant)
-                    meters_per_degree_lon = 111320 * np.cos(center_lat * np.pi / 180)  # meters per degree longitude
-                    
-                    # Calculate half-width of chip in meters
-                    half_size_meters = (chip_size / 2) * BUFFER_SIZES[self.collection]
-                    
-                    # Convert to degrees with correction for latitude
-                    half_size_lat_degrees = half_size_meters / meters_per_degree_lat
-                    half_size_lon_degrees = half_size_meters / meters_per_degree_lon
-                    
-                    # Create polygon coordinates that will appear square on the map
-                    nw_coord = [center_lon - half_size_lon_degrees, center_lat + half_size_lat_degrees]
-                    ne_coord = [center_lon + half_size_lon_degrees, center_lat + half_size_lat_degrees]
-                    se_coord = [center_lon + half_size_lon_degrees, center_lat - half_size_lat_degrees]
-                    sw_coord = [center_lon - half_size_lon_degrees, center_lat - half_size_lat_degrees]
-                    
-                    # Create polygon for this chip
+                    # Create polygon for this chip (ensure closing the polygon)
                     chip_geom = Polygon([nw_coord, ne_coord, se_coord, sw_coord, nw_coord])
                     
                     chips.append(patch)
