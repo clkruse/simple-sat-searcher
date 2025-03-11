@@ -281,6 +281,9 @@ class Map extends EventEmitter {
     // Add to store
     store.addPoint(point);
     
+    // Ensure the points source and layers exist (especially important when using custom base layers)
+    this._ensurePointLayersExist();
+    
     // Immediately update the points on the map
     this.updatePointsOnMap(store.get('points'));
     
@@ -293,6 +296,74 @@ class Map extends EventEmitter {
         // After exporting points, trigger extraction for this point
         this.extractPointData(point);
       });
+    }
+  }
+  
+  // Helper method to ensure point layers exist
+  _ensurePointLayersExist() {
+    const pointsData = store.get('points') || [];
+    
+    // Check if points source exists
+    if (!this.mapInstance.getSource('points')) {
+      // Add the points source
+      this.mapInstance.addSource('points', {
+        'type': 'geojson',
+        'data': {
+          'type': 'FeatureCollection',
+          'features': pointsData
+        }
+      });
+      
+      this.pointsSource = this.mapInstance.getSource('points');
+    }
+    
+    // Check if point layers exist
+    const hasPositiveLayer = this.mapInstance.getLayer('point-positive');
+    const hasNegativeLayer = this.mapInstance.getLayer('point-negative');
+    
+    // If either layer doesn't exist, create both to ensure proper ordering
+    if (!hasPositiveLayer || !hasNegativeLayer) {
+      // Remove existing layers if they exist (to recreate them in the right order)
+      if (hasPositiveLayer) {
+        this.mapInstance.removeLayer('point-positive');
+      }
+      if (hasNegativeLayer) {
+        this.mapInstance.removeLayer('point-negative');
+      }
+      
+      // Add circle layer for positive points
+      this.mapInstance.addLayer({
+        'id': 'point-positive',
+        'type': 'circle',
+        'source': 'points',
+        'filter': ['==', ['get', 'class'], 'positive'],
+        'paint': {
+          'circle-radius': 5,
+          'circle-color': '#3a86ff',
+          'circle-opacity': 0.9,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#fff'
+        }
+      });
+      
+      // Add circle layer for negative points
+      this.mapInstance.addLayer({
+        'id': 'point-negative',
+        'type': 'circle',
+        'source': 'points',
+        'filter': ['==', ['get', 'class'], 'negative'],
+        'paint': {
+          'circle-radius': 5,
+          'circle-color': '#ff3a5e',
+          'circle-opacity': 0.9,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#fff'
+        }
+      });
+    } else {
+      // Ensure the point layers are at the top of the layer stack
+      this.mapInstance.moveLayer('point-positive');
+      this.mapInstance.moveLayer('point-negative');
     }
   }
   
@@ -417,12 +488,19 @@ class Map extends EventEmitter {
   }
 
   removePoint(pointId) {
-    // Get point class for the notification
-    const point = store.get('points').find(p => p.properties.id === pointId);
+    // Find the point in the store
+    const points = store.get('points');
+    const point = points.find(p => p.properties.id === pointId);
     const pointClass = point ? point.properties.class : '';
     
     // Remove from store
     store.removePoint(pointId);
+    
+    // Ensure the points source and layers exist
+    this._ensurePointLayersExist();
+    
+    // Immediately update the points on the map
+    this.updatePointsOnMap(store.get('points'));
     
     // Emit event for other components
     this.emit('pointRemoved', { id: pointId, class: pointClass });
@@ -561,43 +639,16 @@ class Map extends EventEmitter {
       const marker = new mapboxgl.Marker({
         element: el,
         anchor: 'center'
-      })
-      .setLngLat([lon, lat])
-      .addTo(this.mapInstance);
+      }).setLngLat([lon, lat]).addTo(this.mapInstance);
       
-      // Add popup with metadata
-      const popup = new mapboxgl.Popup({
-        closeButton: false,
-        maxWidth: '200px'
-      })
-      .setHTML(`
-        <div class="patch-popup">
-          <img src="data:image/png;base64,${patch.image}" class="patch-popup-image" style="width: 100px;">
-          <div class="patch-popup-info">
-            <span class="patch-popup-label">Class: ${patch.label}</span>
-            <span class="patch-popup-coords">
-              ${lat.toFixed(6)}, ${lon.toFixed(6)}
-            </span>
-          </div>
-          <div class="patch-popup-meta">
-            <span>Coverage: ~${chipSizeMeters}m × ${chipSizeMeters}m</span>
-          </div>
-        </div>
-      `);
-      
-      // Show popup on hover
-      el.addEventListener('mouseenter', () => {
-        marker.setPopup(popup);
-        popup.addTo(this.mapInstance);
-      });
-      
-      el.addEventListener('mouseleave', () => {
-        popup.remove();
-      });
-      
-      // Track the marker for later removal
       this.patchOverlays.push(marker);
     });
+    
+    // Ensure point layers are on top after adding patches
+    this._ensurePointLayersExist();
+    
+    // Make sure the points are visible by updating them again
+    this.updatePointsOnMap(store.get('points'));
   }
   
   // Handle incremental deployment predictions
