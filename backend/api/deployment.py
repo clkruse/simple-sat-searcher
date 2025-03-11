@@ -226,6 +226,7 @@ def register_deployment_endpoints(app, socketio):
             project_id = request.args.get('project_id', '')
             region = json.loads(request.args.get('region', '{}'))
             tile_size = 512
+            overlap = 0.5  # 50% overlap between adjacent tiles
             
             if not project_id or not region:
                 return jsonify({"success": False, "message": "Project ID and region are required"}), 400
@@ -235,9 +236,9 @@ def register_deployment_endpoints(app, socketio):
             if not os.path.exists(project_dir) or not os.path.isdir(project_dir):
                 return jsonify({"success": False, "message": f"Project '{project_id}' not found"}), 404
             
-            # Initialize model deployer to calculate tiles
+            # Initialize Earth Engine for proper geographic handling
+            # Use the ModelDeployer from deploy_service
             from config import BUFFER_SIZES
-            import numpy as np
             deployer = ModelDeployer(
                 project_id=project_id,
                 collection='S2',
@@ -247,62 +248,99 @@ def register_deployment_endpoints(app, socketio):
             # Convert region to ee.Geometry
             region_ee = deployer.get_region_bounds(region)
             
-            # Calculate tile dimensions
+            # Get region in projected coordinate system
+            # Use UTM projection appropriate for the region's centroid
+            region_centroid = region_ee.centroid().coordinates().getInfo()
+            utm_zone = int((180 + region_centroid[0]) / 6) + 1
+            utm_crs = f"EPSG:{32600 + utm_zone}"  # Northern hemisphere as default
+            
+            # If in southern hemisphere, adjust EPSG code
+            if region_centroid[1] < 0:
+                utm_crs = f"EPSG:{32700 + utm_zone}"
+            
+            # Get region bounds in the UTM projection for true distance calculations
             bounds = region_ee.bounds()
-            coords = bounds.getInfo()['coordinates'][0]
+            bounds_coords = bounds.getInfo()['coordinates'][0]
             
-            # Calculate dimensions in meters
-            width_meters = abs(coords[2][0] - coords[0][0])
-            height_meters = abs(coords[2][1] - coords[0][1])
+            # Create a GeoDataFrame for proper projection handling
+            bounds_gdf = gpd.GeoDataFrame(
+                geometry=[
+                    gpd.geometry.Polygon(bounds_coords)
+                ], 
+                crs="EPSG:4326"
+            )
             
-            # Convert to meters (approximate conversion)
-            meters_per_degree_lat = 111320  # at equator
-            meters_per_degree_lon = meters_per_degree_lat * np.cos(np.mean([coords[0][1], coords[2][1]]) * np.pi / 180)
+            # Project to UTM for accurate distance measurements
+            bounds_utm = bounds_gdf.to_crs(utm_crs)
             
-            width_meters = width_meters * meters_per_degree_lon
-            height_meters = height_meters * meters_per_degree_lat
+            # Get dimensions in meters using the UTM projection
+            bounds_utm_coords = bounds_utm.geometry[0].exterior.coords.xy
+            min_x, max_x = min(bounds_utm_coords[0]), max(bounds_utm_coords[0])
+            min_y, max_y = min(bounds_utm_coords[1]), max(bounds_utm_coords[1])
+            
+            # Get dimensions in meters directly
+            width_meters = max_x - min_x
+            height_meters = max_y - min_y
+            
+            # Calculate scale based on the collection
+            scale = BUFFER_SIZES['S2']  # 10m resolution
             
             # Calculate dimensions in pixels
-            scale = BUFFER_SIZES['S2']  # 10m resolution
             width_pixels = int(width_meters / scale)
             height_pixels = int(height_meters / scale)
             
-            # Calculate tile size in degrees
-            tile_size_meters = tile_size * scale
-            tile_size_lat = tile_size_meters / meters_per_degree_lat
-            tile_size_lon = tile_size_meters / meters_per_degree_lon
+            # Calculate effective stride to implement overlap
+            stride_factor = 1 - overlap
+            stride_meters = tile_size * scale * stride_factor
             
-            # Calculate number of tiles
-            n_tiles_x = (width_pixels + tile_size - 1) // tile_size
-            n_tiles_y = (height_pixels + tile_size - 1) // tile_size
+            # Calculate number of tiles with overlap
+            n_tiles_x = max(1, int(width_meters / stride_meters) + (0 if width_meters % stride_meters == 0 else 1))
+            n_tiles_y = max(1, int(height_meters / stride_meters) + (0 if height_meters % stride_meters == 0 else 1))
             
             # Generate tile geometries
             tiles = []
+            
             for y in range(n_tiles_y):
                 for x in range(n_tiles_x):
-                    # Calculate tile bounds in degrees
-                    lon_min = coords[0][0] + x * tile_size_lon
-                    lat_min = coords[0][1] + y * tile_size_lat
-                    lon_max = min(lon_min + tile_size_lon, coords[2][0])
-                    lat_max = min(lat_min + tile_size_lat, coords[2][1])
+                    # Calculate tile bounds in meters (UTM)
+                    x_min_utm = min_x + x * stride_meters
+                    y_min_utm = min_y + y * stride_meters
+                    x_max_utm = min(x_min_utm + (tile_size * scale), max_x)
+                    y_max_utm = min(y_min_utm + (tile_size * scale), max_y)
                     
-                    # Create tile polygon
-                    tile_coords = [
-                        [lon_min, lat_min],
-                        [lon_max, lat_min],
-                        [lon_max, lat_max],
-                        [lon_min, lat_max],
-                        [lon_min, lat_min]
-                    ]
+                    # Create tile polygon in UTM
+                    tile_utm = gpd.GeoDataFrame(
+                        geometry=[
+                            gpd.geometry.Polygon([
+                                (x_min_utm, y_min_utm),
+                                (x_max_utm, y_min_utm),
+                                (x_max_utm, y_max_utm),
+                                (x_min_utm, y_max_utm),
+                                (x_min_utm, y_min_utm)
+                            ])
+                        ],
+                        crs=utm_crs
+                    )
+                    
+                    # Convert back to WGS84 (EPSG:4326) for compatibility
+                    tile_wgs84 = tile_utm.to_crs("EPSG:4326")
+                    tile_coords = list(tile_wgs84.geometry[0].exterior.coords)
+                    
+                    # Create GeoJSON feature for the tile
                     tiles.append({
                         'geometry': {
                             'type': 'Polygon',
-                            'coordinates': [tile_coords]
+                            'coordinates': [[(coord[0], coord[1]) for coord in tile_coords]]
                         },
                         'properties': {
                             'tile_id': f"{x}_{y}",
                             'x': x,
-                            'y': y
+                            'y': y,
+                            'x_min_utm': float(x_min_utm),
+                            'y_min_utm': float(y_min_utm),
+                            'x_max_utm': float(x_max_utm),
+                            'y_max_utm': float(y_max_utm),
+                            'utm_crs': utm_crs
                         }
                     })
             
@@ -313,12 +351,19 @@ def register_deployment_endpoints(app, socketio):
                     "width_pixels": width_pixels,
                     "height_pixels": height_pixels,
                     "n_tiles_x": n_tiles_x,
-                    "n_tiles_y": n_tiles_y
+                    "n_tiles_y": n_tiles_y,
+                    "meters_per_pixel": scale,
+                    "overlap_percent": overlap * 100,
+                    "crs": {
+                        "geographic": "EPSG:4326",
+                        "projected": utm_crs
+                    }
                 }
             })
             
         except Exception as e:
             logger.error(f"Error generating deployment tiles: {str(e)}")
+            logger.error(traceback.format_exc())
             return jsonify({"success": False, "message": str(e)}), 500
 
     @app.route('/get_predictions', methods=['GET'])

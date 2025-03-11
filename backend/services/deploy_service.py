@@ -173,30 +173,37 @@ class ModelDeployer:
         return output_file
 
     def _process_tile(self, tile_info, model, pred_threshold, tries):
-        """Process a single tile and return prediction results.
-        
-        Args:
-            tile_info: Tuple containing (x, y, coords, tile_geom)
-            model: The model to use for predictions
-            pred_threshold: Prediction confidence threshold
-            tries: Number of retries for Earth Engine requests
-            
-        Returns:
-            List of geometries and confidences for predictions that meet the threshold
-        """
         x, y, coords, tile_geom = tile_info
         geometries = []
         confidences = []
+        
+        # Extract lon/lat info early for aspect ratio calculation
+        lon_min, lat_min, lon_max, lat_max = coords[0][0], coords[0][1], coords[2][0], coords[2][1]
         
         # Get image data for this tile
         image_data = None
         for attempt in range(tries):
             try:
-                # Clip and scale the image to the tile geometry
+                # Calculate aspect ratio
+                aspect_ratio = (lon_max - lon_min) / (lat_max - lat_min)
+                
+                # Account for latitude distortion (optional but more accurate)
+                lat_mid = (lat_max + lat_min) / 2
+                aspect_ratio = aspect_ratio * np.cos(np.radians(lat_mid))
+                
+                # Determine dimensions preserving aspect ratio
+                if aspect_ratio > 1:
+                    width = self.chip_size
+                    height = int(self.chip_size / aspect_ratio)
+                else:
+                    height = self.chip_size
+                    width = int(self.chip_size * aspect_ratio)
+                
+                # Clip and scale the image to the tile geometry with preserved aspect ratio
                 clipped_image = self.composite.clipToBoundsAndScale(
                     geometry=tile_geom,
-                    width=self.chip_size,
-                    height=self.chip_size
+                    width=width,
+                    height=height
                 )
                 
                 # Get the data using computePixels with specific band IDs
