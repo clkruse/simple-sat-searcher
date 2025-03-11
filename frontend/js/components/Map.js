@@ -28,9 +28,21 @@ class Map extends EventEmitter {
     
     this.mapInstance = new mapboxgl.Map({
       container: 'map',
-      style: config.mapDefaults.style,
+      style: 'mapbox://styles/mapbox/satellite-v9', // Default to satellite view
       center: config.mapDefaults.center,
-      zoom: config.mapDefaults.zoom
+      zoom: config.mapDefaults.zoom,
+      projection: config.mapDefaults.projection
+    });
+    
+    // disable map rotation using right click + drag
+    this.mapInstance.dragRotate.disable();
+
+    // disable map rotation using touch rotation gesture
+    this.mapInstance.touchZoomRotate.disableRotation();
+
+    // Add error handling
+    this.mapInstance.on('error', (e) => {
+      console.error('Map error:', e.error);
     });
     
     // Add navigation controls
@@ -39,13 +51,18 @@ class Map extends EventEmitter {
     }), 'bottom-right');
     
     // Setup map layers when loaded
-    this.mapInstance.on('load', () => this.onMapLoad());
+    this.mapInstance.on('load', () => {
+      this.onMapLoad();
+      // Set the current base layer
+      this.currentBaseLayer = 'satellite';
+    });
     
     // Setup interaction events
     this.setupEventListeners();
   }
   
   onMapLoad() {
+    this.mapInstance.setFog({});
     // Add a source for points
     this.mapInstance.addSource('points', {
       'type': 'geojson',
@@ -165,21 +182,8 @@ class Map extends EventEmitter {
   
   setupStateListeners() {
     // Listen for point changes
-    store.on('pointsChanged', points => {
+    store.on('points', points => {
       this.updatePointsOnMap(points);
-    });
-    
-    // Auto-fit map when points are loaded
-    store.on('points:loaded', points => {
-      if (points && points.length > 0) {
-        this.fitToPoints(points);
-        
-        // Visualize patches for all loaded points
-        const currentProjectId = store.get('currentProjectId');
-        if (currentProjectId) {
-          this.visualizeAllPointPatches(currentProjectId, true);
-        }
-      }
     });
     
     // Listen for project selection to visualize patches
@@ -193,7 +197,7 @@ class Map extends EventEmitter {
         // If project is deselected, clear visualizations
         this.clearVisualization();
       }
-    });
+   });
     
     // Listen for visualization changes
     store.on('visualizationChanged', data => {
@@ -277,6 +281,9 @@ class Map extends EventEmitter {
     // Add to store
     store.addPoint(point);
     
+    // Immediately update the points on the map
+    this.updatePointsOnMap(store.get('points'));
+    
     // Emit event for other components
     this.emit('pointAdded', point);
     
@@ -297,11 +304,10 @@ class Map extends EventEmitter {
     // Get project info to find out chip size
     const apiService = new ApiService();
     
-    // Discreetly show a small indicator next to the point
-    this.showExtractionIndicator(point);
-    
     apiService.getProjectInfo(currentProjectId)
-      .then(projectInfo => {
+      .then(response => {
+        // Fix: Access chip_size from the project field in the response
+        const projectInfo = response.project;
         const chipSize = projectInfo.chip_size || 64; // Default to 64 if not found
         
         // Get collection from control panel if available
@@ -322,20 +328,15 @@ class Map extends EventEmitter {
       .then(response => {
         if (response.success) {
           console.log(`Data extracted for point ${point.properties.id}`);
-          // Update the indicator to show success
-          this.updateExtractionIndicator(point, 'success');
           
           // Now visualize only this point without clearing existing visualizations
           this.visualizeSinglePoint(currentProjectId, point.properties.id);
         } else {
           console.error(`Error extracting data for point: ${response.message}`);
-          // Update the indicator to show failure
-          this.updateExtractionIndicator(point, 'error');
         }
       })
       .catch(error => {
         console.error(`Error during point extraction: ${error.message}`);
-        this.updateExtractionIndicator(point, 'error');
       });
   }
   
@@ -414,20 +415,7 @@ class Map extends EventEmitter {
         console.error(`Error visualizing patches: ${error.message}`);
       });
   }
-  
-  // Show a small indicator next to the point to show extraction status
-  showExtractionIndicator(point) {
-    // You can implement this to show a loading indicator
-    // For simplicity, we'll just leave as a placeholder
-    console.log(`Extracting data for point ${point.properties.id}...`);
-  }
-  
-  // Update extraction indicator status
-  updateExtractionIndicator(point, status) {
-    // Update the indicator (placeholder)
-    console.log(`Extraction for point ${point.properties.id} status: ${status}`);
-  }
-  
+
   removePoint(pointId) {
     // Get point class for the notification
     const point = store.get('points').find(p => p.properties.id === pointId);
@@ -745,26 +733,6 @@ class Map extends EventEmitter {
           'line-dasharray': [2, 1]
         }
       });
-      
-      // Fit the map to the bounding box
-      try {
-        const bounds = new mapboxgl.LngLatBounds();
-        
-        if (boundingBox.geometry.coordinates && boundingBox.geometry.coordinates[0]) {
-          boundingBox.geometry.coordinates[0].forEach(coord => {
-            bounds.extend(coord);
-          });
-        }
-        
-        if (!bounds.isEmpty()) {
-          this.mapInstance.fitBounds(bounds, {
-            padding: 50,
-            maxZoom: 16
-          });
-        }
-      } catch (error) {
-        console.error('Error fitting bounds to bounding box', error);
-      }
     }
     
     // Add predictions to the map if there are any features
@@ -781,6 +749,190 @@ class Map extends EventEmitter {
         type: 'line',
         source: 'deployment-predictions',
         paint: {
+          'line-color': '#FFCE00',
+          'line-width': 1.5,
+          // Use the confidence property directly for opacity 'line-opacity': ['get', 'confidence']
+          'line-opacity': 1.0
+        }
+      });
+      
+    }
+  }
+  
+  // Cleanup map imagery
+  cleanupMapImagery() {
+    // Simply revert to default satellite layer
+    this.setBaseLayer('satellite');
+    return Promise.resolve();
+  }
+  
+  // Method to manage base layers
+  setBaseLayer(layerType, options = {}) {
+    // Default to 'satellite' if no type specified
+    layerType = layerType || 'satellite';
+    
+    // 1. First, remove any existing GEE custom imagery layer
+    if (this.mapInstance.getLayer('gee-imagery')) {
+      this.mapInstance.removeLayer('gee-imagery');
+    }
+    if (this.mapInstance.getSource('gee-imagery')) {
+      this.mapInstance.removeSource('gee-imagery');
+    }
+    
+    // 2. Handle the different base layer types
+    if (layerType === 'satellite') {
+      // Switch to the Mapbox satellite style
+      this.changeMapStyle('mapbox://styles/mapbox/satellite-v9', true);
+      this.currentBaseLayer = 'satellite';
+      return Promise.resolve();
+    } 
+    else if (layerType === 'custom' && options.tileUrl) {
+      // Validate the tile URL
+      if (!options.tileUrl || typeof options.tileUrl !== 'string') {
+        return Promise.reject(new Error("Invalid tile URL"));
+      }
+      
+      // Add the GEE custom imagery as a source
+      return new Promise((resolve, reject) => {
+        try {
+          // Use a completely empty style for custom imagery to avoid any vector layers on top
+          const emptyStyle = {
+            version: 8,
+            name: "Empty",
+            metadata: {},
+            sources: {},
+            layers: [],
+            id: "empty-style"
+          };
+          
+          // Apply the empty style
+          this.changeMapStyle(emptyStyle, true);
+          
+          // Wait for the style to fully load
+          this.mapInstance.once('style.load', () => {
+            // Add after a slight delay to ensure the map is ready
+            setTimeout(() => {
+              try {
+                this._addCustomBaseLayer(options);
+                this.currentBaseLayer = 'custom';
+                resolve();
+              } catch (error) {
+                // If we fail to add the custom layer, revert to satellite
+                this.changeMapStyle('mapbox://styles/mapbox/satellite-v9', true);
+                this.currentBaseLayer = 'satellite';
+                reject(error);
+              }
+            }, 100);
+          });
+        } catch (error) {
+          // If we fail, revert to satellite
+          this.changeMapStyle('mapbox://styles/mapbox/satellite-v9', true);
+          this.currentBaseLayer = 'satellite';
+          reject(error);
+        }
+      });
+    }
+    
+    // Default case, resolve with no action
+    return Promise.resolve();
+  }
+  
+  _addCustomBaseLayer(options) {
+    try {
+      // Format the tile URL correctly for mapbox
+      let tileUrl = options.tileUrl;
+      
+      // Ensure the URL is in the correct format for Mapbox GL JS
+      // Sometimes the GEE API returns URLs with {x}, {y}, {z} placeholders
+      // but Mapbox GL JS expects {z}/{x}/{y}
+      if (tileUrl && (tileUrl.includes('{x}') || tileUrl.includes('{y}') || tileUrl.includes('{z}'))) {
+        // Only reformat if it's not already in the right format
+        if (!tileUrl.includes('{z}/{x}/{y}')) {
+          // Extract the URL without the placeholders
+          let baseUrl = tileUrl;
+          baseUrl = baseUrl.replace('{x}', '{0}').replace('{y}', '{1}').replace('{z}', '{2}');
+          baseUrl = baseUrl.replace('{0}', '{x}').replace('{1}', '{y}').replace('{2}', '{z}');
+          tileUrl = baseUrl;
+        }
+      }
+      
+      // Add the raster tiles as a source
+      this.mapInstance.addSource('gee-imagery', {
+        type: 'raster',
+        tiles: [tileUrl],
+        tileSize: 256,
+        attribution: options.attribution || 'Google Earth Engine'
+      });
+      
+      // With an empty style, we can just add the layer without specifying a layer to insert before
+      const layerConfig = {
+        id: 'gee-imagery',
+        type: 'raster',
+        source: 'gee-imagery',
+        paint: {
+          'raster-opacity': 1.0  // Full opacity to make sure imagery is visible
+        }
+      };
+      
+      this.mapInstance.addLayer(layerConfig);
+      
+      // Store the current imagery info
+      this.currentImagery = {
+        collection: options.collection,
+        startDate: options.startDate,
+        endDate: options.endDate,
+        bounds: options.bounds
+      };
+      
+      // Zoom to the imagery bounds if provided
+      if (options.bounds && options.fitBounds !== false) {
+        this.mapInstance.fitBounds(options.bounds, { padding: 0 });
+      }
+    } catch (error) {
+      throw error;
+    }
+  }
+  
+  // Restore deployment predictions from saved data
+  restoreDeploymentPredictions() {
+    if (!this.savedDeploymentData) {
+      return;
+    }
+    
+    // Restore deployment bbox if it exists
+    if (this.savedDeploymentData.bbox) {
+      this.mapInstance.addSource('deployment-bbox', {
+        type: 'geojson',
+        data: this.savedDeploymentData.bbox
+      });
+      
+      this.mapInstance.addLayer({
+        id: 'deployment-bbox',
+        type: 'line',
+        source: 'deployment-bbox',
+        paint: {
+          'line-color': '#27ae60',
+          'line-width': 2,
+          'line-dasharray': [2, 1]
+        }
+      });
+    }
+    
+    // Restore deployment predictions if they exist
+    if (this.savedDeploymentData.predictions && 
+        this.savedDeploymentData.predictions.features && 
+        this.savedDeploymentData.predictions.features.length > 0) {
+      
+      this.mapInstance.addSource('deployment-predictions', {
+        type: 'geojson',
+        data: this.savedDeploymentData.predictions
+      });
+      
+      this.mapInstance.addLayer({
+        id: 'deployment-predictions-line',
+        type: 'line',
+        source: 'deployment-predictions',
+        paint: {
           'line-color': '#FF6F00',
           'line-width': 2,
           'line-opacity': [
@@ -788,58 +940,12 @@ class Map extends EventEmitter {
           ]
         }
       });
-      
-      // Fit the map to the predictions if we didn't already fit to the bounding box
-      if (!boundingBox || !boundingBox.geometry) {
-        try {
-          const bounds = new mapboxgl.LngLatBounds();
-          predictions.features.forEach(feature => {
-            if (feature.geometry && feature.geometry.coordinates) {
-              // Handle different geometry types
-              if (feature.geometry.type === 'Polygon') {
-                feature.geometry.coordinates[0].forEach(coord => {
-                  bounds.extend(coord);
-                });
-              } else if (feature.geometry.type === 'LineString') {
-                feature.geometry.coordinates.forEach(coord => {
-                  bounds.extend(coord);
-                });
-              } else if (feature.geometry.type === 'Point') {
-                bounds.extend(feature.geometry.coordinates);
-              }
-            }
-          });
-          
-          if (!bounds.isEmpty()) {
-            this.mapInstance.fitBounds(bounds, {
-              padding: 50,
-              maxZoom: 16
-            });
-          }
-        } catch (error) {
-          console.error('Error fitting bounds to predictions', error);
-        }
-      }
     }
   }
   
-  // Cleanup map imagery
-  cleanupMapImagery() {
-    // Remove any existing prediction layers and sources
-    if (this.mapInstance.getLayer('deployment-predictions-line')) {
-      this.mapInstance.removeLayer('deployment-predictions-line');
-    }
-    if (this.mapInstance.getSource('deployment-predictions')) {
-      this.mapInstance.removeSource('deployment-predictions');
-    }
-    
-    // Remove any existing bounding box
-    if (this.mapInstance.getLayer('deployment-bbox')) {
-      this.mapInstance.removeLayer('deployment-bbox');
-    }
-    if (this.mapInstance.getSource('deployment-bbox')) {
-      this.mapInstance.removeSource('deployment-bbox');
-    }
+  // Simple method to set map style
+  setStyle(styleUrl) {
+    this.mapInstance.setStyle(styleUrl);
   }
   
   // Change map style with data preservation
@@ -851,8 +957,14 @@ class Map extends EventEmitter {
       // Check for prediction layers and save their data
       let predictionData = null;
       let deploymentPredictionData = null;
+      let deploymentBboxData = null;
       let hasPredictions = false;
       let hasDeploymentPredictions = false;
+      let hasDeploymentBbox = false;
+      
+      // Save patch visualizations
+      const patchSources = [];
+      const patchLayers = [];
       
       try {
         // Check for regular predictions
@@ -866,101 +978,278 @@ class Map extends EventEmitter {
           deploymentPredictionData = this.mapInstance.getSource('deployment-predictions')._data;
           hasDeploymentPredictions = true;
         }
-      } catch (e) {
-        console.warn('Error checking prediction layers:', e);
+        
+        // Check for deployment bounding box
+        if (this.mapInstance.getSource('deployment-bbox')) {
+          deploymentBboxData = this.mapInstance.getSource('deployment-bbox')._data;
+          hasDeploymentBbox = true;
+        }
+        
+        // Save all patch visualizations
+        // Find all sources that start with 'source-patch-'
+        const style = this.mapInstance.getStyle();
+        if (style && style.sources) {
+          Object.keys(style.sources).forEach(sourceId => {
+            if (sourceId.startsWith('source-patch-')) {
+              const source = style.sources[sourceId];
+              if (source.type === 'image' && source.url) {
+                patchSources.push({
+                  id: sourceId,
+                  url: source.url,
+                  coordinates: source.coordinates
+                });
+              }
+            }
+          });
+        }
+        
+        // Save all layers related to patches
+        if (style && style.layers) {
+          style.layers.forEach(layer => {
+            if (layer.id.startsWith('layer-patch-')) {
+              patchLayers.push({
+                id: layer.id,
+                sourceId: layer.source,
+                // Don't store minzoom/maxzoom as we'll use defaults later
+                type: layer.type,
+                paint: layer.paint || {}
+              });
+            }
+          });
+        }
+      } catch (error) {
+        // Silent error - we'll continue with what we have
       }
       
-      // Set up listener to restore points and predictions after style change
+      // Listen for the style data event to restore data
       this.mapInstance.once('style.load', () => {
-        // Restore points
-        this.mapInstance.addSource('points', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: pointsData
+        try {
+          // First, fix all the basic sources and layers
+          // Re-add the points source and layers
+          if (this.pointsSource && pointsData) {
+            this.mapInstance.addSource('points', {
+              'type': 'geojson',
+              'data': {
+                'type': 'FeatureCollection',
+                'features': pointsData || []
+              }
+            });
+            
+            this.pointsSource = this.mapInstance.getSource('points');
+            
+            // Add circle layer for positive points
+            this.mapInstance.addLayer({
+              'id': 'point-positive',
+              'type': 'circle',
+              'source': 'points',
+              'filter': ['==', ['get', 'class'], 'positive'],
+              'paint': {
+                'circle-radius': 5,
+                'circle-color': '#3a86ff',
+                'circle-opacity': 0.9,
+                'circle-stroke-width': 1.5,
+                'circle-stroke-color': '#fff'
+              }
+            });
+            
+            // Add circle layer for negative points
+            this.mapInstance.addLayer({
+              'id': 'point-negative',
+              'type': 'circle',
+              'source': 'points',
+              'filter': ['==', ['get', 'class'], 'negative'],
+              'paint': {
+                'circle-radius': 5,
+                'circle-color': '#ff3a5e',
+                'circle-opacity': 0.9,
+                'circle-stroke-width': 1.5,
+                'circle-stroke-color': '#fff'
+              }
+            });
           }
-        });
-        
-        // Add the positive points layer
-        this.mapInstance.addLayer({
-          id: 'point-positive',
-          type: 'circle',
-          source: 'points',
-          filter: ['==', ['get', 'class'], 'positive'],
-          paint: {
-            'circle-radius': 5,
-            'circle-color': '#3a86ff',
-            'circle-opacity': 0.9,
-            'circle-stroke-width': 1.5,
-            'circle-stroke-color': '#fff'
-          }
-        });
-        
-        // Add the negative points layer
-        this.mapInstance.addLayer({
-          id: 'point-negative',
-          type: 'circle',
-          source: 'points',
-          filter: ['==', ['get', 'class'], 'negative'],
-          paint: {
-            'circle-radius': 5,
-            'circle-color': '#ff3a5e',
-            'circle-opacity': 0.9,
-            'circle-stroke-width': 1.5,
-            'circle-stroke-color': '#fff'
-          }
-        });
-        
-        // Update the points source reference
-        this.pointsSource = this.mapInstance.getSource('points');
-        
-        // Restore prediction layers if they existed
-        if (hasPredictions && predictionData) {
-          this.mapInstance.addSource('predictions', {
-            type: 'geojson',
-            data: predictionData
-          });
           
-          this.mapInstance.addLayer({
-            id: 'predictions',
-            type: 'fill',
-            source: 'predictions',
-            paint: {
-              'fill-color': '#4a90e2',
-              'fill-opacity': 0.4,
-              'fill-outline-color': '#2c54b2'
-            }
-          });
-        }
-        
-        // Restore deployment prediction layers if they existed
-        if (hasDeploymentPredictions && deploymentPredictionData) {
-          this.mapInstance.addSource('deployment-predictions', {
-            type: 'geojson',
-            data: deploymentPredictionData
-          });
+          // Re-add predictions if they exist
+          if (hasPredictions && predictionData) {
+            this.mapInstance.addSource('predictions', {
+              'type': 'geojson',
+              'data': predictionData
+            });
+            
+            this.mapInstance.addLayer({
+              'id': 'predictions-line',
+              'type': 'line',
+              'source': 'predictions',
+              'paint': {
+                'line-color': [
+                  'case',
+                  ['==', ['get', 'class'], 'positive'], '#3a86ff',
+                  ['==', ['get', 'class'], 'negative'], '#ff3a5e',
+                  '#aaaaaa'
+                ],
+                'line-width': 2,
+                'line-opacity': 0.8
+              }
+            });
+          }
           
-          this.mapInstance.addLayer({
-            id: 'deployment-predictions-line',
-            type: 'line',
-            source: 'deployment-predictions',
-            paint: {
-              'line-color': '#FF6F00',
-              'line-width': 2,
-              'line-opacity': [
-                'get', 'confidence'
-              ]
+          // Re-add deployment predictions if they exist
+          if (hasDeploymentPredictions && deploymentPredictionData) {
+            this.mapInstance.addSource('deployment-predictions', {
+              'type': 'geojson',
+              'data': deploymentPredictionData
+            });
+            
+            this.mapInstance.addLayer({
+              'id': 'deployment-predictions-line',
+              'type': 'line',
+              'source': 'deployment-predictions',
+              'paint': {
+                'line-color': [
+                  'case',
+                  ['>=', ['get', 'probability'], 0.75], '#3a86ff',
+                  ['>=', ['get', 'probability'], 0.5], '#63a4ff',
+                  ['>=', ['get', 'probability'], 0.25], '#a9d2ff',
+                  '#eeeeee'
+                ],
+                'line-width': 2,
+                'line-opacity': 0.8
+              }
+            });
+          }
+          
+          // Re-add deployment bbox if it exists
+          if (hasDeploymentBbox && deploymentBboxData) {
+            this.mapInstance.addSource('deployment-bbox', {
+              'type': 'geojson',
+              'data': deploymentBboxData
+            });
+            
+            this.mapInstance.addLayer({
+              'id': 'deployment-bbox',
+              'type': 'line',
+              'source': 'deployment-bbox',
+              'paint': {
+                'line-color': '#ffaa00',
+                'line-width': 2,
+                'line-opacity': 0.8
+              }
+            });
+          }
+          
+          // Re-add all patch sources and layers
+          for (const source of patchSources) {
+            try {
+              if (!this.mapInstance.getSource(source.id)) {
+                this.mapInstance.addSource(source.id, {
+                  'type': 'image',
+                  'url': source.url,
+                  'coordinates': source.coordinates
+                });
+              }
+            } catch (err) {
+              // Silent error
             }
-          });
+          }
+          
+          // Improved layer restoration with validation
+          for (const layer of patchLayers) {
+            try {
+              if (this.mapInstance.getSource(layer.sourceId) && !this.mapInstance.getLayer(layer.id)) {
+                // Create a valid layer configuration
+                const layerConfig = this._validateLayerConfig({
+                  'id': layer.id,
+                  'type': layer.type || 'raster',
+                  'source': layer.sourceId,
+                  'paint': {
+                    'raster-opacity': 0.8
+                  }
+                });
+                
+                if (layerConfig) {
+                  this.mapInstance.addLayer(layerConfig);
+                }
+              }
+            } catch (err) {
+              // Silent error
+            }
+          }
+          
+          // Emit a custom event to let other components know they can add layers
+          this.emit('styleLoaded');
+          
+          // Also emit the native styledata event for consistency
+          setTimeout(() => {
+            this.mapInstance.fire('styledata');
+          }, 50);
+        } catch (error) {
+          // Silent error
         }
-        
-        // Emit style loaded event
-        this.emit('styleLoaded');
       });
     }
     
-    // Change the map style
+    // Update map style
     this.mapInstance.setStyle(styleUrl);
+  }
+  
+  // Validate a layer configuration to ensure it has all required properties
+  _validateLayerConfig(layerConfig) {
+    // Make a copy of the config to avoid modifying the original
+    const config = { ...layerConfig };
+    
+    // Ensure required properties exist
+    if (!config.id) {
+      console.warn('Layer missing ID, skipping');
+      return null;
+    }
+    
+    if (!config.type) {
+      console.warn(`Layer ${config.id} missing type, defaulting to 'raster'`);
+      config.type = 'raster';
+    }
+    
+    if (!config.source) {
+      console.warn(`Layer ${config.id} missing source, skipping`);
+      return null;
+    }
+    
+    // Ensure paint is defined
+    if (!config.paint) {
+      config.paint = {};
+    }
+    
+    // For raster layers, ensure raster-opacity is defined
+    if (config.type === 'raster' && !config.paint['raster-opacity']) {
+      config.paint['raster-opacity'] = 0.8;
+    }
+    
+    // Remove any undefined properties that could cause validation errors
+    Object.keys(config).forEach(key => {
+      if (config[key] === undefined) {
+        delete config[key];
+      }
+    });
+    
+    return config;
+  }
+
+  /**
+   * Center the map at a specific location with animation
+   * @param {Object} location - Location object with lat and lng properties
+   * @param {number} zoom - Optional zoom level (defaults to 12)
+   */
+  centerAtLocation(location, zoom = 12) {
+    if (!location || !location.lat || !location.lng) {
+      console.warn('Invalid location provided to centerAtLocation');
+      return;
+    }
+    
+    // Fly to the location with animation
+    this.mapInstance.flyTo({
+      center: [location.lng, location.lat],
+      zoom: zoom,
+      essential: true, // This animation is considered essential for the user experience
+      duration: 1500 // Animation duration in milliseconds
+    });
   }
 }
 

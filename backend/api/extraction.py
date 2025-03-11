@@ -775,8 +775,8 @@ def register_extraction_endpoints(app, socketio):
                 visualization_params = {
                     'bands': ['B4', 'B3', 'B2'],
                     'min': 0,
-                    'max': 3000,
-                    'gamma': 1.4
+                    'max': 2500,
+                    'gamma': 1.0
                 }
             elif collection == 'S1':
                 # For Sentinel-1, use VV and VH bands

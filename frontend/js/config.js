@@ -35,9 +35,11 @@ export const config = {
     
     // Map defaults
     mapDefaults: {
-      style: 'mapbox://styles/mapbox/satellite-v9',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
       center: [-86.139373135448025, 34.303025456518071], // Default to CAFOS
-      zoom: 12
+      zoom: 2,
+      projection: 'globe',
+      fitBounds: false
     },
     
     // Extraction defaults

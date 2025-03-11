@@ -202,7 +202,17 @@ body {
 
 .point-stats {
     font-size: 14px;
-    color: #666;
+    font-weight: 500;
+    color: #fff;
+    margin-right: 10px;
+}
+
+.data-source-badge {
+    display: inline-block;
+    color: #333;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 3px 6px;
     margin-right: 10px;
 }
 
@@ -254,6 +264,7 @@ body {
 .form-group input[type="number"],
 .form-group input[type="date"],
 .form-group select,
+.form-group button,
 .form-group textarea {
     width: 100%;
     padding: 8px 12px;
@@ -635,6 +646,27 @@ body {
     width: 100%;
 }
 
+.chip-size-container {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.chip-size-container .form-group {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.chip-size-container .form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.chip-size-container .form-group select {
+    width: 100%;
+}
+
 .chip-size-row {
     margin-left: 5px;
     margin-bottom: 0px;
@@ -651,6 +683,7 @@ body {
 
 .chip-size-row select {
     width: auto;
+    margin-right: 20px;
 }
 
 #new-project-name {
@@ -1307,4 +1340,54 @@ body {
     justify-content: space-between;
     font-size: 12px;
     color: #666;
+}
+
+#select-location-btn {
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 0.9em;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+/* Style for when coordinates are displayed */
+#select-location-btn.has-coordinates {
+    background-color: #3a86ff;
+    color: white;
+}
+
+#select-location-btn.has-coordinates:hover {
+    background-color: #2a76ef;
+}
+
+/* Map location selection mode */
+.map-selection-active {
+    cursor: crosshair !important;
+}
+
+.location-selection-banner {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 4px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.location-selection-banner button {
+    background-color: #ff3a5e;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.location-selection-banner button:hover {
+    background-color: #e0354f;
 }

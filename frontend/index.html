@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Map Point Labeling Tool</title>
+    <title>Simple Sat Searcher</title>
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles/main.css">
@@ -50,20 +50,13 @@
                 <span class="point-stats">
                     <span id="positive-count">0</span>+ / <span id="negative-count">0</span>-
                 </span>
+                <span class="data-source-badge" id="project-data-source-badge">S2</span>
                 <button class="close-btn" id="close-control-panel"><i class="fas fa-times"></i></button>
             </div>
         </div>
         <div class="panel-body">
             <div class="info-box">
-                <p><i class="fas fa-info-circle"></i> Left-click to add positive points. Right-click to add negative points. Use the "Clear Points" tool to remove points.</p>
-            </div>
-            
-            <div class="form-group">
-                <label for="control-collection">Satellite Collection</label>
-                <select id="control-collection">
-                    <option value="S2">Sentinel-2</option>
-                    <option value="S1">Sentinel-1</option>
-                </select>
+                <p><i class="fas fa-info-circle"></i> Left-click to add positive points. Right-click to add negative points.</p>
             </div>
             
             <div class="form-group">
@@ -76,7 +69,7 @@
                 <input type="date" id="control-end-date" required>
             </div>
             
-            <div class="form-group">
+            <div class="form-group" id="control-threshold-container">
                 <label for="control-clear-threshold">Clear Threshold (S2 only)</label>
                 <div class="range-container">
                     <input type="range" id="control-clear-threshold" min="0" max="1" step="0.05" value="0.75">
@@ -86,10 +79,10 @@
             
             <div class="button-group">
                 <button type="button" class="primary-btn" id="control-load-imagery-btn">
-                    <i class="fas fa-globe"></i> Display Imagery
+                    Display Imagery
                 </button>
                 <button type="button" class="secondary-btn" id="control-remove-imagery-btn">
-                    <i class="fas fa-eye-slash"></i> Remove Imagery
+                    Remove Imagery
                 </button>
             </div>
         </div>
@@ -162,21 +155,34 @@
                 <button class="close-btn" id="close-modal"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body">
-                <div class="create-project">
+                <div class="create-project"> 
+                    <div class="chip-size-container">
+                        <div class="form-group">
+                            <label for="project-chip-size">Chip Size</label>
+                            <select id="project-chip-size">
+                                <option value="16">16×16</option>
+                                <option value="32" selected>32×32</option>
+                                <option value="48">48×48</option>
+                                <option value="64">64×64</option>
+                                <option value="128">128×128</option>
+                                <option value="256">256×256</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="project-data-source">Data Source</label>
+                            <select id="project-data-source">
+                                <option value="S2" selected>Sentinel-2</option>
+                                <option value="S1">Sentinel-1</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="project-data-source">Start Location</label>
+                            <button type="button" id="select-location-btn">Set on Map</button>
+                        </div>
+                    </div>
                     <div class="project-name-row">
                         <input type="text" id="new-project-name" placeholder="New Project Name">
                         <button id="create-project-btn">Create</button>
-                    </div>
-                    <div class="form-group chip-size-row">
-                        <label for="project-chip-size">Chip Size (pixels)</label>
-                        <select id="project-chip-size">
-                            <option value="16">16×16</option>
-                            <option value="32" selected>32×32</option>
-                            <option value="48">48×48</option>
-                            <option value="64">64×64</option>
-                            <option value="128">128×128</option>
-                            <option value="256">256×256</option>
-                        </select>
                     </div>
                 </div>
                 
@@ -364,19 +370,12 @@
         <div class="panel-header">
             <span>Load Map Imagery</span>
             <div class="header-controls">
+                <span class="data-source-badge" id="imagery-data-source-badge">S2</span>
                 <button class="close-btn" id="close-map-imagery-panel"><i class="fas fa-times"></i></button>
             </div>
         </div>
         <div class="panel-body">
             <form id="map-imagery-form">
-                <div class="form-group">
-                    <label for="imagery-collection">Satellite Collection</label>
-                    <select id="imagery-collection">
-                        <option value="S2">Sentinel-2</option>
-                        <option value="S1">Sentinel-1</option>
-                    </select>
-                </div>
-                
                 <div class="form-group">
                     <label for="imagery-start-date">Start Date</label>
                     <input type="date" id="imagery-start-date" required>
@@ -387,7 +386,7 @@
                     <input type="date" id="imagery-end-date" required>
                 </div>
                 
-                <div class="form-group">
+                <div class="form-group" id="imagery-threshold-container">
                     <label for="imagery-clear-threshold">Clear Threshold (S2 only)</label>
                     <div class="range-container">
                         <input type="range" id="imagery-clear-threshold" min="0" max="1" step="0.05" value="0.75">
@@ -409,7 +408,7 @@
     </div>
     
     <!-- Third-party libraries -->
-    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.10.0/mapbox-gl.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     
     <!-- Application entry point (using ES modules) -->

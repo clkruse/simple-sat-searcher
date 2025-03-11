@@ -94,6 +94,8 @@ def register_projects_endpoints(app, socketio):
             data = request.json
             project_name = data.get('name', '').strip()
             chip_size = data.get('chip_size', 64)  # Default to 64 if not provided
+            data_source = data.get('data_source', 'S2')  # Default to Sentinel-2 if not provided
+            default_location = data.get('default_location', None)  # Get default location if provided
             
             if not project_name:
                 return jsonify({"success": False, "message": "Project name is required"}), 400
@@ -114,8 +116,13 @@ def register_projects_endpoints(app, socketio):
                 'name': project_name,
                 'created': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'description': data.get('description', ''),
-                'chip_size': chip_size
+                'chip_size': chip_size,
+                'data_source': data_source
             }
+            
+            # Add default location if provided
+            if default_location:
+                project_info['default_location'] = default_location
             
             with open(os.path.join(project_dir, 'project_info.json'), 'w') as f:
                 json.dump(project_info, f, indent=2)
@@ -177,7 +184,10 @@ def register_projects_endpoints(app, socketio):
             with open(project_info_path, 'r') as f:
                 project_info = json.load(f)
             
-            return jsonify(project_info)
+            return jsonify({
+                "success": True,
+                "project": project_info
+            })
             
         except Exception as e:
             return jsonify({"success": False, "message": str(e)}), 500

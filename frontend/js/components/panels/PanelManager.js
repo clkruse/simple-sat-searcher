@@ -5,6 +5,7 @@ import { store } from '../../state/Store.js';
 import { notificationManager } from '../Notification.js';
 import { formatDate } from '../../utils/formatters.js';
 import { map } from '../Map.js';
+import { ApiService } from '../../services/ApiService.js';
 
 class PanelManager extends EventEmitter {
   constructor() {
@@ -193,11 +194,45 @@ class PanelManager extends EventEmitter {
   }
   
   initializeControlPanel() {
-    // Update panel header with project name
+    // Update project name
     document.getElementById('project-name').textContent = store.get('currentProjectName');
     
     // Update point counts
     this.updatePointCountsDisplay(store.get('pointCounts'));
+    
+    // Get project info to display data source
+    const currentProjectId = store.get('currentProjectId');
+    if (currentProjectId) {
+      // Fetch project info to get data source
+      const apiService = new ApiService();
+      apiService.getProjectInfo(currentProjectId)
+        .then(response => {
+          if (response.success && response.project) {
+            const projectInfo = response.project;
+            
+            // Update data source badge
+            const dataSourceBadge = document.getElementById('project-data-source-badge');
+            if (dataSourceBadge && projectInfo.data_source) {
+              dataSourceBadge.textContent = projectInfo.data_source;
+            }
+            
+            // Show/hide the clear threshold based on the data source
+            const thresholdContainer = document.getElementById('control-threshold-container');
+            if (thresholdContainer) {
+              thresholdContainer.style.display = (projectInfo.data_source === 'S2') ? 'block' : 'none';
+            }
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching project info:', error);
+        });
+        
+      // Visualize all point patches when opening the Label Data panel
+      // Use a small delay to ensure the panel is fully initialized
+      setTimeout(() => {
+        map.visualizeAllPointPatches(currentProjectId, true);
+      }, 300);
+    }
     
     // Set default dates
     this.setupDateRange('control-start-date', 'control-end-date', 30);
@@ -224,15 +259,6 @@ class PanelManager extends EventEmitter {
         controlThreshold.value = imageryThreshold.value;
         document.getElementById('control-threshold-value').textContent = imageryThreshold.value;
       }
-    }
-    
-    // Visualize all point patches when opening the Label Data panel
-    const currentProjectId = store.get('currentProjectId');
-    if (currentProjectId) {
-      // Use a small delay to ensure the panel is fully initialized
-      setTimeout(() => {
-        map.visualizeAllPointPatches(currentProjectId, true);
-      }, 300);
     }
   }
   
@@ -280,6 +306,36 @@ class PanelManager extends EventEmitter {
   initializeMapImageryPanel() {
     // Set default dates
     this.setupDateRange('imagery-start-date', 'imagery-end-date', 30);
+    
+    // Get current project data source
+    const currentProjectId = store.get('currentProjectId');
+    
+    if (currentProjectId) {
+      // Fetch project info to get data source
+      const apiService = new ApiService();
+      apiService.getProjectInfo(currentProjectId)
+        .then(response => {
+          if (response.success && response.project) {
+            const projectInfo = response.project;
+            const dataSource = projectInfo.data_source || 'S2';
+            
+            // Update data source badge
+            const dataSourceBadge = document.getElementById('imagery-data-source-badge');
+            if (dataSourceBadge) {
+              dataSourceBadge.textContent = dataSource;
+            }
+            
+            // Show/hide the clear threshold based on the data source
+            const thresholdContainer = document.getElementById('imagery-threshold-container');
+            if (thresholdContainer) {
+              thresholdContainer.style.display = (dataSource === 'S2') ? 'block' : 'none';
+            }
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching project info:', error);
+        });
+    }
   }
   
   // Helper method to update visualization extractions
@@ -364,26 +420,65 @@ class PanelManager extends EventEmitter {
     
     projectsList.innerHTML = '';
     projects.forEach(project => {
-      const projectItem = document.createElement('div');
-      projectItem.className = 'project-item';
-      
-      // Add data badge if the project has extracted data
-      const dataBadge = project.has_extracted_data ? 
-        `<span class="data-badge">${project.extracted_files} extractions</span>` : '';
-      
-      projectItem.innerHTML = `
-        <div class="project-item-name">${project.name} ${dataBadge}</div>
-        <div class="project-item-info">
-          <span>${project.total_points} points</span>
-        </div>
-      `;
-      
-      // Add click handler to select project
-      projectItem.addEventListener('click', () => {
-        this.selectProject(project.name, project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase(), project.latest_export);
-      });
-      
-      projectsList.appendChild(projectItem);
+      // Fetch project info to get data source
+      const apiService = new ApiService();
+      apiService.getProjectInfo(project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase())
+        .then(response => {
+          if (response.success && response.project) {
+            const projectInfo = response.project;
+            const projectItem = document.createElement('div');
+            projectItem.className = 'project-item';
+            
+            // Add data badge if the project has extracted data
+            const dataBadge = project.has_extracted_data ? 
+              `<span class="data-badge">${project.extracted_files} extractions</span>` : '';
+            
+            // Add data source badge
+            const dataSource = projectInfo.data_source || 'S2';
+            const dataSourceBadge = `<span class="data-source-badge">${dataSource}</span>`;
+            
+            projectItem.innerHTML = `
+              <div class="project-item-name">${project.name} ${dataSourceBadge}</div>
+              <div class="project-item-info">
+                <span>${project.total_points} points</span>
+                ${dataBadge}
+              </div>
+            `;
+            
+            // Add click handler to select the project
+            projectItem.addEventListener('click', () => {
+              this.selectProject(project.name, project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase(), project.latest_export);
+            });
+            
+            projectsList.appendChild(projectItem);
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching project info:', error);
+          
+          // Fallback to displaying without data source
+          const projectItem = document.createElement('div');
+          projectItem.className = 'project-item';
+          
+          // Add data badge if the project has extracted data
+          const dataBadge = project.has_extracted_data ? 
+            `<span class="data-badge">${project.extracted_files} extractions</span>` : '';
+          
+          projectItem.innerHTML = `
+            <div class="project-item-name">${project.name}</div>
+            <div class="project-item-info">
+              <span>${project.total_points} points</span>
+              ${dataBadge}
+            </div>
+          `;
+          
+          // Add click handler to select project
+          projectItem.addEventListener('click', () => {
+            this.selectProject(project.name, project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase(), project.latest_export);
+          });
+          
+          projectsList.appendChild(projectItem);
+        });
     });
   }
   
@@ -394,6 +489,28 @@ class PanelManager extends EventEmitter {
     
     // Load project points
     store.loadProjectPoints(latestExport);
+    
+    // Update data source badge with default value (will be updated when control panel opens)
+    const dataSourceBadge = document.getElementById('project-data-source-badge');
+    if (dataSourceBadge) {
+      dataSourceBadge.textContent = 'S2'; // Default to S2 until project info is loaded
+    }
+    
+    // Load project info to check for default location
+    const apiService = new ApiService();
+    apiService.getProjectInfo(id)
+      .then(data => {
+        if (data.success && data.project && data.project.default_location) {
+          // If project has a default location, center the map there
+          const { map } = window.app;
+          if (map) {
+            map.centerAtLocation(data.project.default_location);
+          }
+        }
+      })
+      .catch(error => {
+        console.error('Error loading project info:', error);
+      });
     
     // Close project modal and open control panel
     this.closeAllPanels();

@@ -69,10 +69,23 @@ class ApiService {
    * Create a new project
    * @param {string} name - Project name
    * @param {number} chipSize - Chip size in pixels
+   * @param {string} dataSource - Data source (S1 or S2)
+   * @param {Object} defaultLocation - Optional default location {lat, lng}
    * @returns {Promise<Object>} - Project creation result
    */
-  async createProject(name, chipSize) {
-    return this.post('create_project', { name, chip_size: chipSize });
+  async createProject(name, chipSize, dataSource, defaultLocation = null) {
+    const data = { 
+      name, 
+      chip_size: chipSize,
+      data_source: dataSource 
+    };
+    
+    // Add default location if provided
+    if (defaultLocation) {
+      data.default_location = defaultLocation;
+    }
+    
+    return this.post('create_project', data);
   }
   
   /**

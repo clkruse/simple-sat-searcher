@@ -9,11 +9,26 @@ import { ApiService } from './services/ApiService.js';
 
 class App {
   constructor() {
+    // Initialize components
+    this.mapComponent = map;
+    this.panelManager = panelManager;
+    this.notificationManager = notificationManager;
+    
+    // Initialize state
+    this.selectedLocation = null;
+    this.locationSelectionHandler = null;
+    
     // Initialize all modules and connect events
     this.initialize();
     
     // Initialize notification system
     this.notificationTimeout = null;
+    
+    // Expose map component for other modules to use
+    this.map = map;
+    
+    // Expose app instance to window for global access
+    window.app = this;
   }
   
   initialize() {
@@ -80,6 +95,22 @@ class App {
         
         if (trainingStatus && trainingStatus.classList.contains('hidden')) {
           trainingStatus.classList.remove('hidden');
+        }
+      }
+    });
+    
+    // Listen for deployment progress updates
+    store.on('deploymentProgress', (progress) => {
+      const progressBar = document.getElementById('deployment-progress');
+      const progressText = document.getElementById('deployment-progress-text');
+      const deploymentStatus = document.getElementById('deployment-status');
+      
+      if (progressBar && progressText) {
+        progressBar.style.width = `${progress.percent}%`;
+        progressText.textContent = progress.message;
+        
+        if (deploymentStatus && deploymentStatus.classList.contains('hidden')) {
+          deploymentStatus.classList.remove('hidden');
         }
       }
     });
@@ -166,6 +197,12 @@ class App {
     const createProjectBtn = document.getElementById('create-project-btn');
     if (createProjectBtn) {
       createProjectBtn.addEventListener('click', this.handleCreateProject.bind(this));
+    }
+    
+    // Select location button
+    const selectLocationBtn = document.getElementById('select-location-btn');
+    if (selectLocationBtn) {
+      selectLocationBtn.addEventListener('click', this.handleSelectLocation.bind(this));
     }
     
     // CLEAR POINTS
@@ -324,6 +361,13 @@ class App {
   initializeState() {
     // Always show project selection on startup
     panelManager.openPanel('project-modal', 'project-selector-btn');
+    
+    // Initialize state from store
+    const points = store.get('points') || [];
+    const currentProjectId = store.get('currentProjectId');
+    
+    // Update UI state based on the current base layer
+    this.updateImageryButtonsState(map.currentBaseLayer || 'satellite');
   }
   
   // HANDLERS
@@ -392,30 +436,133 @@ class App {
     document.getElementById('clear-visualization-btn').classList.add('hidden');
   }
   
+  /**
+   * Handle selecting a location on the map for a new project
+   */
+  handleSelectLocation(e) {
+    e.preventDefault();
+    
+    // Hide the project modal
+    const projectModal = document.getElementById('project-modal');
+    projectModal.style.display = 'none';
+    
+    // Add a banner to indicate selection mode
+    const banner = document.createElement('div');
+    banner.className = 'location-selection-banner';
+    banner.innerHTML = `
+      <span>Click on the map to set default location</span>
+      <button id="cancel-location-selection">Cancel</button>
+    `;
+    document.body.appendChild(banner);
+    
+    // Add a class to the map to change cursor
+    document.getElementById('map').classList.add('map-selection-active');
+    
+    // Set up cancel button
+    document.getElementById('cancel-location-selection').addEventListener('click', () => {
+      this.cancelLocationSelection();
+    });
+    
+    // Store the current map instance
+    const mapInstance = this.mapComponent.mapInstance;
+    
+    // Create one-time click handler for the map
+    this.locationSelectionHandler = (e) => {
+      // Get the clicked coordinates with 6 decimal places for storage
+      const lat = e.lngLat.lat.toFixed(6);
+      const lng = e.lngLat.lng.toFixed(6);
+      
+      // Format coordinates with 2 decimal places for display
+      const displayLat = parseFloat(lat).toFixed(2);
+      const displayLng = parseFloat(lng).toFixed(2);
+      
+      // Update the button text with shortened coordinates
+      const selectLocationBtn = document.getElementById('select-location-btn');
+      if (selectLocationBtn) {
+        selectLocationBtn.textContent = `${displayLat}, ${displayLng}`;
+        selectLocationBtn.classList.add('has-coordinates');
+      }
+      
+      // Store the coordinates for later use
+      this.selectedLocation = {
+        lat: parseFloat(lat),
+        lng: parseFloat(lng)
+      };
+      
+      // Clean up and show the modal again
+      this.cancelLocationSelection();
+      projectModal.style.display = 'block';
+    };
+    
+    // Add the click handler to the map
+    mapInstance.once('click', this.locationSelectionHandler);
+  }
+  
+  /**
+   * Cancel the location selection mode
+   */
+  cancelLocationSelection() {
+    // Remove the banner
+    const banner = document.querySelector('.location-selection-banner');
+    if (banner) {
+      banner.remove();
+    }
+    
+    // Remove the map class
+    document.getElementById('map').classList.remove('map-selection-active');
+    
+    // Show the project modal again
+    document.getElementById('project-modal').style.display = 'block';
+    
+    // Remove the click handler if it exists
+    if (this.locationSelectionHandler && this.mapComponent && this.mapComponent.mapInstance) {
+      this.mapComponent.mapInstance.off('click', this.locationSelectionHandler);
+    }
+    
+    // If no location is selected, make sure the button text is reset
+    if (!this.selectedLocation) {
+      const selectLocationBtn = document.getElementById('select-location-btn');
+      if (selectLocationBtn && selectLocationBtn.textContent !== 'Set') {
+        selectLocationBtn.textContent = 'Set';
+      }
+    }
+  }
+  
   // Create project
   handleCreateProject(e) {
     const projectName = document.getElementById('new-project-name').value.trim();
     
     if (!projectName) {
-      notificationManager.warning('Please enter a project name');
+      this.notificationManager.warning('Please enter a project name');
       return;
     }
     
     const chipSize = parseInt(document.getElementById('project-chip-size').value);
+    const dataSource = document.getElementById('project-data-source').value;
     
     const apiService = new ApiService();
-    apiService.createProject(projectName, chipSize)
+    apiService.createProject(projectName, chipSize, dataSource, this.selectedLocation)
       .then(data => {
         if (data.success) {
           // Select the new project
-          panelManager.selectProject(projectName, data.project_id);
-          notificationManager.success(`Project "${projectName}" created`);
+          this.panelManager.selectProject(projectName, data.project_id);
+          this.notificationManager.success(`Project "${projectName}" created`);
+          
+          // Clear the selected location for next time
+          this.selectedLocation = null;
+          
+          // Reset the button text
+          const selectLocationBtn = document.getElementById('select-location-btn');
+          if (selectLocationBtn) {
+            selectLocationBtn.textContent = 'Set';
+            selectLocationBtn.classList.remove('has-coordinates');
+          }
         } else {
           throw new Error(data.message || 'Failed to create project');
         }
       })
       .catch(error => {
-        notificationManager.error(`Error creating project: ${error.message}`);
+        this.notificationManager.error(`Error creating project: ${error.message}`);
       });
   }
   
@@ -479,7 +626,7 @@ class App {
     }
     
     // Get form values
-    const batchSize = parseInt(document.getElementById('batch-size').value) || 8;
+    const batchSize = parseInt(document.getElementById('batch-size').value) || 4;
     const epochs = parseInt(document.getElementById('epochs').value) || 64;
     const testSplit = parseFloat(document.getElementById('test-split').value) || 0.1;
     const useAugmentation = document.getElementById('use-augmentation').checked;
@@ -620,10 +767,16 @@ class App {
   handleMapImagery(e) {
     e.preventDefault();
     
-    const collection = document.getElementById('imagery-collection').value;
     const startDate = document.getElementById('imagery-start-date').value;
     const endDate = document.getElementById('imagery-end-date').value;
     const clearThreshold = document.getElementById('imagery-clear-threshold').value;
+    
+    // Get the current project ID
+    const currentProjectId = store.get('currentProjectId');
+    if (!currentProjectId) {
+      notificationManager.warning('No project selected');
+      return;
+    }
     
     // Get the current map bounds
     const bounds = map.mapInstance.getBounds();
@@ -631,22 +784,25 @@ class App {
     const statusElement = document.getElementById('imagery-status');
     statusElement.style.display = 'flex';
     
-    try {
-      // Clean up any existing overlay
-      map.cleanupMapImagery();
-      
-      // Fetch map imagery from the backend
-      const apiService = new ApiService();
-      apiService.getMapImagery({
-        west: bounds.getWest(),
-        south: bounds.getSouth(),
-        east: bounds.getEast(),
-        north: bounds.getNorth(),
-        start_date: startDate,
-        end_date: endDate,
-        collection: collection,
-        clear_threshold: clearThreshold
-      }).then(data => {
+    // Get the project info to get the data source
+    const apiService = new ApiService();
+    apiService.getProjectInfo(currentProjectId)
+      .then(projectInfo => {
+        const collection = projectInfo.data_source || 'S2'; // Default to S2 if not specified
+        
+        // Fetch map imagery from the backend
+        return apiService.getMapImagery({
+          west: bounds.getWest(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          north: bounds.getNorth(),
+          start_date: startDate,
+          end_date: endDate,
+          collection: collection,
+          clear_threshold: clearThreshold
+        });
+      })
+      .then(data => {
         if (!data.success) {
           throw new Error(data.message || 'Failed to load map imagery');
         }
@@ -657,57 +813,74 @@ class App {
           [data.bounds.east, data.bounds.north]  // Northeast coordinates
         ];
         
-        // Change to a light style
-        map.changeMapStyle('mapbox://styles/mapbox/light-v10', true);
-        
-        // Listen for style load event
-        map.once('styleLoaded', () => {
-          // Add the raster tiles as a source
-          map.mapInstance.addSource('sentinel-imagery', {
-            type: 'raster',
-            tiles: [data.tile_url],
-            tileSize: 256,
-            attribution: `Sentinel ${collection === 'S2' ? '2' : '1'} Imagery (${startDate} to ${endDate})`
-          });
+        // Set the custom base layer using our new method
+        return map.setBaseLayer('custom', {
+          tileUrl: data.tile_url,
+          collection: data.collection,
+          startDate: startDate,
+          endDate: endDate,
+          bounds: imageBounds,
+          attribution: `${data.collection} (${startDate} to ${endDate})`
+        }).then(() => {
+          // Update legend
+          this.updateLegend('true_color', data.collection);
           
-          // Add the raster layer (make sure it's below the points)
-          map.mapInstance.addLayer({
-            id: 'sentinel-imagery',
-            type: 'raster',
-            source: 'sentinel-imagery',
-            paint: {
-              'raster-opacity': 1.0
-            }
-          }, 'point-positive'); // Add below the points layers
-          
-          // Zoom to the imagery bounds
-          map.mapInstance.fitBounds(imageBounds, { padding: 50 });
-          
+          // Hide loading status
           statusElement.style.display = 'none';
-          notificationManager.success('Sentinel imagery loaded successfully');
+          
+          // Update UI state to show that custom imagery is active
+          this.updateImageryButtonsState('custom');
+          
+          // Show notification
+          notificationManager.success(`Loaded ${data.collection} imagery for ${startDate} to ${endDate}`);
         });
-      }).catch(error => {
-        console.error('Error loading map imagery:', error);
+      })
+      .catch(error => {
         statusElement.style.display = 'none';
         notificationManager.error(`Error loading map imagery: ${error.message}`);
       });
-    } catch (error) {
-      console.error('Error loading map imagery:', error);
-      statusElement.style.display = 'none';
-      notificationManager.error(`Error loading map imagery: ${error.message}`);
-    }
   }
   
   // Remove map imagery
   handleRemoveImagery(e) {
     try {
-      // Clean up the overlay
-      map.cleanupMapImagery();
-      
-      // Change back to satellite style
-      map.changeMapStyle('mapbox://styles/mapbox/satellite-v9', true);
+      // Switch back to the default satellite base layer
+      map.setBaseLayer('satellite')
+        .then(() => {
+          // Update UI state to show that default imagery is active
+          this.updateImageryButtonsState('satellite');
+          
+          // Show notification
+          notificationManager.success('Imagery removed');
+          
+          // Re-visualize all point patches to ensure they're still visible
+          const currentProjectId = store.get('currentProjectId');
+          if (currentProjectId) {
+            // Small delay to ensure everything is ready
+            setTimeout(() => {
+              map.visualizeAllPointPatches(currentProjectId, false); // false = don't clear existing
+            }, 100);
+          }
+        });
     } catch (error) {
       console.error('Error removing imagery:', error);
+      notificationManager.error(`Error removing imagery: ${error.message}`);
+    }
+  }
+  
+  // Helper method to update UI state based on active base layer
+  updateImageryButtonsState(activeLayer) {
+    const loadImageryBtn = document.getElementById('control-load-imagery-btn');
+    const removeImageryBtn = document.getElementById('control-remove-imagery-btn');
+    
+    if (loadImageryBtn && removeImageryBtn) {
+      if (activeLayer === 'custom') {
+        loadImageryBtn.disabled = true;
+        removeImageryBtn.disabled = false;
+      } else {
+        loadImageryBtn.disabled = false;
+        removeImageryBtn.disabled = true;
+      }
     }
   }
   
@@ -715,7 +888,6 @@ class App {
   handleControlLoadImagery(e) {
     e.preventDefault();
     
-    const collection = document.getElementById('control-collection').value;
     const startDate = document.getElementById('control-start-date').value;
     const endDate = document.getElementById('control-end-date').value;
     const clearThreshold = document.getElementById('control-clear-threshold').value;
@@ -724,81 +896,79 @@ class App {
       return;
     }
     
-    // Get the current map bounds
-    const bounds = map.mapInstance.getBounds();
+    // Get the current project ID and data source
+    const currentProjectId = store.get('currentProjectId');
+    if (!currentProjectId) {
+      notificationManager.warning('No project selected');
+      return;
+    }
     
-    // Fetch map imagery from the backend
+    // Get the project info to get the data source
     const apiService = new ApiService();
-    apiService.getMapImagery({
-      west: bounds.getWest(),
-      south: bounds.getSouth(),
-      east: bounds.getEast(),
-      north: bounds.getNorth(),
-      start_date: startDate,
-      end_date: endDate,
-      collection: collection,
-      clear_threshold: clearThreshold
-    }).then(data => {
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to load map imagery');
-      }
-      
-      // Define the image bounds 
-      const imageBounds = [
-        [data.bounds.west, data.bounds.south], // Southwest coordinates
-        [data.bounds.east, data.bounds.north]  // Northeast coordinates
-      ];
-      
-      // Check if we need to change the map style
-      const currentStyle = map.mapInstance.getStyle().name;
-      if (currentStyle !== 'Light') {
-        // Change to a light style
-        map.changeMapStyle('mapbox://styles/mapbox/light-v10', true);
+    apiService.getProjectInfo(currentProjectId)
+      .then(projectInfo => {
+        const collection = projectInfo.data_source || 'S2'; // Default to S2 if not specified
         
-        // Listen for style load event and then add imagery
-        map.once('styleLoaded', () => {
-          this.addOrUpdateImagery(data, collection, startDate, endDate, imageBounds);
+        // Show/hide the clear threshold based on the collection
+        const thresholdContainer = document.getElementById('control-threshold-container');
+        if (thresholdContainer) {
+          thresholdContainer.style.display = collection === 'S2' ? 'block' : 'none';
+        }
+        
+        // Get the current map bounds
+        const bounds = map.mapInstance.getBounds();
+        
+        // Fetch map imagery from the backend
+        apiService.getMapImagery({
+          west: bounds.getWest(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          north: bounds.getNorth(),
+          start_date: startDate,
+          end_date: endDate,
+          collection: collection,
+          clear_threshold: clearThreshold
+        }).then(data => {
+          if (!data.success) {
+            throw new Error(data.message || 'Failed to load map imagery');
+          }
+          
+          // Define the image bounds 
+          const imageBounds = [
+            [data.bounds.west, data.bounds.south], // Southwest coordinates
+            [data.bounds.east, data.bounds.north]  // Northeast coordinates
+          ];
+          
+          // Set the custom base layer using our new method
+          return map.setBaseLayer('custom', {
+            tileUrl: data.tile_url,
+            collection: data.collection,
+            startDate: startDate,
+            endDate: endDate,
+            bounds: imageBounds,
+            attribution: `${data.collection} (${startDate} to ${endDate})`
+          }).then(() => {
+            // Update legend
+            this.updateLegend('true_color', data.collection);
+            
+            // Update UI state to show that custom imagery is active
+            this.updateImageryButtonsState('custom');
+            
+            // Re-visualize all point patches to ensure they're still visible
+            setTimeout(() => {
+              map.visualizeAllPointPatches(currentProjectId, false); // false = don't clear existing
+            }, 100);
+            
+            // Show notification
+            notificationManager.success(`Loaded ${data.collection} imagery for ${startDate} to ${endDate}`);
+          });
+        }).catch(error => {
+          notificationManager.error(`Error loading imagery: ${error.message}`);
         });
-      } else {
-        // Style is already light, just update imagery
-        this.addOrUpdateImagery(data, collection, startDate, endDate, imageBounds);
-      }
-    }).catch(error => {
-      console.error(`Error loading imagery: ${error.message}`);
-    });
-  }
-  
-  // Helper method to add or update imagery layer
-  addOrUpdateImagery(data, collection, startDate, endDate, imageBounds) {
-    // Check if imagery layer exists and remove it if so
-    if (map.mapInstance.getLayer('sentinel-imagery')) {
-      map.mapInstance.removeLayer('sentinel-imagery');
-    }
-    
-    if (map.mapInstance.getSource('sentinel-imagery')) {
-      map.mapInstance.removeSource('sentinel-imagery');
-    }
-    
-    // Add the raster tiles as a source
-    map.mapInstance.addSource('sentinel-imagery', {
-      type: 'raster',
-      tiles: [data.tile_url],
-      tileSize: 256,
-      attribution: `Sentinel ${collection === 'S2' ? '2' : '1'} Imagery (${startDate} to ${endDate})`
-    });
-    
-    // Add the raster layer (make sure it's below the points)
-    map.mapInstance.addLayer({
-      id: 'sentinel-imagery',
-      type: 'raster',
-      source: 'sentinel-imagery',
-      paint: {
-        'raster-opacity': 1.0
-      }
-    }, 'point-positive'); // Add below the points layers
-    
-    // Zoom to the imagery bounds
-    map.mapInstance.fitBounds(imageBounds, { padding: 50 });
+      })
+      .catch(error => {
+        notificationManager.error(`Error getting project info: ${error.message}`);
+      });
   }
   
   // Update visualization legend

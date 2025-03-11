@@ -504,6 +504,12 @@ class Store extends EventEmitter {
       message: data.status || `Processing (${percent}%)`
     });
     
+    // Emit progress event for UI updates
+    this.emit('deploymentProgress', {
+      percent: percent,
+      message: data.status || `Processing (${percent}%)`
+    });
+    
     // If there are incremental predictions, emit an event
     if (data.incremental_predictions && data.incremental_predictions.features) {
       this.emit('deploymentIncrementalUpdate', {
