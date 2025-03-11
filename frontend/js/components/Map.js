@@ -224,12 +224,11 @@ class Map extends EventEmitter {
     const pointId = Date.now();
     
     // Get the imagery time period and cloudiness threshold from the control panel
-    // or map imagery panel, depending on which is available
     let startDate = '';
     let endDate = '';
     let clearThreshold = 0.75;
     
-    // Try to get values from control panel first (highest priority)
+    // Get values from control panel (which are now synchronized with other panels)
     const controlStartDate = document.getElementById('control-start-date');
     const controlEndDate = document.getElementById('control-end-date');
     const controlThreshold = document.getElementById('control-clear-threshold');
@@ -238,28 +237,16 @@ class Map extends EventEmitter {
       startDate = controlStartDate.value;
       endDate = controlEndDate.value;
       clearThreshold = controlThreshold.value;
-    } else {
-      // Fall back to map imagery panel values if available
-      const imageryStartDate = document.getElementById('imagery-start-date');
-      const imageryEndDate = document.getElementById('imagery-end-date');
-      const imageryThreshold = document.getElementById('imagery-clear-threshold');
+    }
+    
+    // If we don't have dates, use default values
+    if (!startDate || !endDate) {
+      const now = new Date();
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(now.getDate() - 30);
       
-      if (imageryStartDate && imageryEndDate && imageryThreshold) {
-        startDate = imageryStartDate.value;
-        endDate = imageryEndDate.value;
-        clearThreshold = imageryThreshold.value;
-      } else {
-        // Last resort: try extract panel values
-        const extractStartDate = document.getElementById('start-date');
-        const extractEndDate = document.getElementById('end-date');
-        const extractThreshold = document.getElementById('clear-threshold');
-        
-        if (extractStartDate && extractEndDate && extractThreshold) {
-          startDate = extractStartDate.value;
-          endDate = extractEndDate.value;
-          clearThreshold = extractThreshold.value;
-        }
-      }
+      startDate = thirtyDaysAgo.toISOString().split('T')[0];
+      endDate = now.toISOString().split('T')[0];
     }
     
     // Create a new point feature

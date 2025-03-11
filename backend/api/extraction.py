@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import traceback
 
-from config import PROJECTS_DIR, BUFFER_SIZES
+from config import PROJECTS_DIR, PIXEL_SIZE
 from services.gee_service import GEEDataExtractor
 
 logger = logging.getLogger(__name__)

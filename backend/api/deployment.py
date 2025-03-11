@@ -238,7 +238,7 @@ def register_deployment_endpoints(app, socketio):
             
             # Initialize Earth Engine for proper geographic handling
             # Use the ModelDeployer from deploy_service
-            from config import BUFFER_SIZES
+            from config import PIXEL_SIZE
             deployer = ModelDeployer(
                 project_id=project_id,
                 collection='S2',
@@ -283,7 +283,7 @@ def register_deployment_endpoints(app, socketio):
             height_meters = max_y - min_y
             
             # Calculate scale based on the collection
-            scale = BUFFER_SIZES['S2']  # 10m resolution
+            scale = PIXEL_SIZE['S2']  # 10m resolution
             
             # Calculate dimensions in pixels
             width_pixels = int(width_meters / scale)

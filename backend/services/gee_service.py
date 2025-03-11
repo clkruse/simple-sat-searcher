@@ -17,7 +17,7 @@ import numpy as np
 import xarray as xr
 from shapely.geometry import Point
 
-from config import PROJECTS_DIR, BUFFER_SIZES, BAND_IDS, EE_PROJECT
+from config import PROJECTS_DIR, PIXEL_SIZE, BAND_IDS, EE_PROJECT
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -143,7 +143,7 @@ class GEEDataExtractor:
         self.chip_size = chip_size
         self.ee_project = ee_project
         self.band_ids = BAND_IDS.get(collection)
-        self.resolution = BUFFER_SIZES.get(collection)
+        self.resolution = PIXEL_SIZE.get(collection)
         
         # Initialize Earth Engine
         try:

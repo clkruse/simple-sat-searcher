@@ -13,7 +13,7 @@ import datetime
 import concurrent.futures
 import traceback
 
-from config import PROJECTS_DIR, BUFFER_SIZES, BAND_IDS, EE_PROJECT
+from config import PROJECTS_DIR, PIXEL_SIZE, BAND_IDS, EE_PROJECT
 
 class ModelDeployer:
     def __init__(self, project_id, collection='S2', chip_size=512, ee_project="earth-engine-ck"):
@@ -347,8 +347,8 @@ class ModelDeployer:
             self.logger.info(f"Successfully created composite image with bands: {BAND_IDS[self.collection]}")
             self.logger.info("Successfully converted region to Earth Engine geometry")
             
-            # Use predefined scale from BUFFER_SIZES
-            scale = BUFFER_SIZES[self.collection]
+            # Use predefined scale from PIXEL_SIZE
+            scale = PIXEL_SIZE[self.collection]
             self.logger.info(f"Using scale: {scale} meters per pixel")
             
             # Get region bounds

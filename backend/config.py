@@ -10,7 +10,7 @@ os.makedirs(PROJECTS_DIR, exist_ok=True)
 CORS_ORIGINS = ["http://localhost:8000", "http://127.0.0.1:8000"]
 
 # Buffer sizes for different satellite collections
-BUFFER_SIZES = {
+PIXEL_SIZE = {
     'S2': 10,  # 10m resolution for Sentinel-2
     'S1': 10   # 10m resolution for Sentinel-1
 }

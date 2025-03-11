@@ -257,6 +257,37 @@ class App {
       }
     });
     
+    // Add event listeners to sync date fields across panels
+    const dateFields = [
+      'control-start-date', 'control-end-date',
+      'imagery-start-date', 'imagery-end-date',
+      'deployment-start-date', 'deployment-end-date'
+    ];
+    
+    dateFields.forEach(fieldId => {
+      const element = document.getElementById(fieldId);
+      if (element) {
+        element.addEventListener('change', (e) => {
+          this.syncDateFields(e.target);
+        });
+      }
+    });
+    
+    // Add event listeners to sync threshold sliders
+    const thresholdSliders = [
+      'control-clear-threshold',
+      'imagery-clear-threshold'
+    ];
+    
+    thresholdSliders.forEach(sliderId => {
+      const slider = document.getElementById(sliderId);
+      if (slider) {
+        slider.addEventListener('input', (e) => {
+          this.syncThresholdSliders(e.target);
+        });
+      }
+    });
+    
     // Socket events
     this.connectSocketEvents();
   }
@@ -745,8 +776,10 @@ class App {
     // Estimate number of tiles
     const estimatedTiles = Math.ceil(areaSqKm / tileAreaSqKm);
     
+    const numPixels = estimatedTiles * 512 * 512 / 1000000;
+    
     if (deployBtnText) {
-      deployBtnText.textContent = `Deploy across ~${estimatedTiles} 5x5km tiles`;
+      deployBtnText.textContent = `Deploy: ~${estimatedTiles} tiles (${Math.round(numPixels).toLocaleString()} million pixels)`;
     }
     
     // Create region polygon from bounds (still needed for other operations)
@@ -1086,6 +1119,62 @@ class App {
     this.notificationTimeout = setTimeout(() => {
       notification.classList.remove('show');
     }, 3000);
+  }
+  
+  // Synchronize date fields across panels
+  syncDateFields(changedField) {
+    // Get the field type (start or end date)
+    const isStartDate = changedField.id.includes('start-date');
+    const newValue = changedField.value;
+    
+    // Define all date field IDs
+    const startDateFields = ['control-start-date', 'imagery-start-date', 'deployment-start-date'];
+    const endDateFields = ['control-end-date', 'imagery-end-date', 'deployment-end-date'];
+    
+    // Update all corresponding fields
+    const fieldsToUpdate = isStartDate ? startDateFields : endDateFields;
+    
+    fieldsToUpdate.forEach(fieldId => {
+      const field = document.getElementById(fieldId);
+      if (field && field.id !== changedField.id) {
+        field.value = newValue;
+      }
+    });
+    
+    // If this is a deployment date field, update the deployment tiles info
+    if (changedField.id.includes('deployment') && 
+        document.getElementById('deployment-panel').classList.contains('active')) {
+      this.updateDeploymentTilesInfo();
+    }
+  }
+  
+  // Synchronize threshold sliders between panels
+  syncThresholdSliders(changedSlider) {
+    const newValue = changedSlider.value;
+    const sliders = {
+      'control-clear-threshold': 'control-threshold-value',
+      'imagery-clear-threshold': 'imagery-threshold-value'
+    };
+    
+    // Update all other sliders
+    Object.keys(sliders).forEach(sliderId => {
+      const slider = document.getElementById(sliderId);
+      const valueDisplay = document.getElementById(sliders[sliderId]);
+      
+      if (slider && slider.id !== changedSlider.id) {
+        slider.value = newValue;
+      }
+      
+      if (valueDisplay) {
+        valueDisplay.textContent = newValue;
+      }
+    });
+    
+    // Also update the deployment clear threshold if it exists
+    const deploymentThreshold = document.getElementById('clear-threshold');
+    if (deploymentThreshold) {
+      deploymentThreshold.value = newValue;
+    }
   }
 }
 

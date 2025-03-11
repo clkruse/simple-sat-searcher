@@ -234,32 +234,17 @@ class PanelManager extends EventEmitter {
       }, 300);
     }
     
-    // Set default dates
-    this.setupDateRange('control-start-date', 'control-end-date', 30);
+    // Check for existing date values in other panels
+    this.syncDateValuesAcrossPanels('control-start-date', 'control-end-date');
     
-    // If imagery panel has dates set, copy those values
-    const imageryStartDate = document.getElementById('imagery-start-date');
-    const imageryEndDate = document.getElementById('imagery-end-date');
-    const imageryThreshold = document.getElementById('imagery-clear-threshold');
-    
-    if (imageryStartDate && imageryEndDate && imageryThreshold) {
-      const controlStartDate = document.getElementById('control-start-date');
-      const controlEndDate = document.getElementById('control-end-date');
-      const controlThreshold = document.getElementById('control-clear-threshold');
-      
-      if (controlStartDate && imageryStartDate.value) {
-        controlStartDate.value = imageryStartDate.value;
-      }
-      
-      if (controlEndDate && imageryEndDate.value) {
-        controlEndDate.value = imageryEndDate.value;
-      }
-      
-      if (controlThreshold && imageryThreshold.value) {
-        controlThreshold.value = imageryThreshold.value;
-        document.getElementById('control-threshold-value').textContent = imageryThreshold.value;
-      }
+    // If no dates are set in any panel, set default dates
+    const controlStartDate = document.getElementById('control-start-date');
+    if (!controlStartDate || !controlStartDate.value) {
+      this.setupDateRange('control-start-date', 'control-end-date', 30);
     }
+    
+    // Sync threshold values
+    this.syncThresholdValues('control-clear-threshold', 'control-threshold-value');
   }
   
   initializeVisualizationPanel() {
@@ -289,8 +274,28 @@ class PanelManager extends EventEmitter {
   }
   
   initializeDeploymentPanel() {
-    // Set default dates
-    this.setupDateRange('deployment-start-date', 'deployment-end-date', 30);
+    // Check for existing date values in other panels
+    this.syncDateValuesAcrossPanels('deployment-start-date', 'deployment-end-date');
+    
+    // If no dates are set in any panel, set default dates
+    const deploymentStartDate = document.getElementById('deployment-start-date');
+    if (!deploymentStartDate || !deploymentStartDate.value) {
+      this.setupDateRange('deployment-start-date', 'deployment-end-date', 30);
+    }
+    
+    // Sync clear threshold value with other panels
+    const clearThreshold = document.getElementById('clear-threshold');
+    if (clearThreshold) {
+      // Try to get value from control panel or imagery panel
+      const controlThreshold = document.getElementById('control-clear-threshold');
+      const imageryThreshold = document.getElementById('imagery-clear-threshold');
+      
+      if (controlThreshold && controlThreshold.value) {
+        clearThreshold.value = controlThreshold.value;
+      } else if (imageryThreshold && imageryThreshold.value) {
+        clearThreshold.value = imageryThreshold.value;
+      }
+    }
     
     // Load models for deployment
     store.loadModels().then(models => {
@@ -304,8 +309,14 @@ class PanelManager extends EventEmitter {
   }
   
   initializeMapImageryPanel() {
-    // Set default dates
-    this.setupDateRange('imagery-start-date', 'imagery-end-date', 30);
+    // Check for existing date values in other panels
+    this.syncDateValuesAcrossPanels('imagery-start-date', 'imagery-end-date');
+    
+    // If no dates are set in any panel, set default dates
+    const imageryStartDate = document.getElementById('imagery-start-date');
+    if (!imageryStartDate || !imageryStartDate.value) {
+      this.setupDateRange('imagery-start-date', 'imagery-end-date', 30);
+    }
     
     // Get current project data source
     const currentProjectId = store.get('currentProjectId');
@@ -336,6 +347,9 @@ class PanelManager extends EventEmitter {
           console.error('Error fetching project info:', error);
         });
     }
+    
+    // Sync threshold values
+    this.syncThresholdValues('imagery-clear-threshold', 'imagery-threshold-value');
   }
   
   // Helper method to update visualization extractions
@@ -686,6 +700,90 @@ class PanelManager extends EventEmitter {
     
     if (endElement) {
       endElement.value = formatDate(endDate);
+    }
+  }
+  
+  // Helper method to sync date values across panels
+  syncDateValuesAcrossPanels(targetStartDateId, targetEndDateId) {
+    const startDateFields = ['control-start-date', 'imagery-start-date', 'deployment-start-date'];
+    const endDateFields = ['control-end-date', 'imagery-end-date', 'deployment-end-date'];
+    
+    const targetStartDate = document.getElementById(targetStartDateId);
+    const targetEndDate = document.getElementById(targetEndDateId);
+    
+    if (!targetStartDate || !targetEndDate) return;
+    
+    // Try to find a value from other panels for start date
+    let startDateValue = '';
+    for (const fieldId of startDateFields) {
+      if (fieldId === targetStartDateId) continue;
+      
+      const field = document.getElementById(fieldId);
+      if (field && field.value) {
+        startDateValue = field.value;
+        break;
+      }
+    }
+    
+    // Try to find a value from other panels for end date
+    let endDateValue = '';
+    for (const fieldId of endDateFields) {
+      if (fieldId === targetEndDateId) continue;
+      
+      const field = document.getElementById(fieldId);
+      if (field && field.value) {
+        endDateValue = field.value;
+        break;
+      }
+    }
+    
+    // Set the values if found
+    if (startDateValue) {
+      targetStartDate.value = startDateValue;
+    }
+    
+    if (endDateValue) {
+      targetEndDate.value = endDateValue;
+    }
+  }
+  
+  // Helper method to sync threshold values between panels
+  syncThresholdValues(targetThresholdId, targetValueDisplayId) {
+    const thresholdSliders = {
+      'control-clear-threshold': 'control-threshold-value',
+      'imagery-clear-threshold': 'imagery-threshold-value'
+    };
+    
+    const targetSlider = document.getElementById(targetThresholdId);
+    const targetValueDisplay = document.getElementById(targetValueDisplayId);
+    
+    if (!targetSlider || !targetValueDisplay) return;
+    
+    // Try to find a value from other sliders
+    let thresholdValue = '';
+    for (const sliderId in thresholdSliders) {
+      if (sliderId === targetThresholdId) continue;
+      
+      const slider = document.getElementById(sliderId);
+      if (slider && slider.value) {
+        thresholdValue = slider.value;
+        break;
+      }
+    }
+    
+    // Also check deployment threshold
+    const deploymentThreshold = document.getElementById('clear-threshold');
+    if (!thresholdValue && deploymentThreshold && deploymentThreshold.value) {
+      thresholdValue = deploymentThreshold.value;
+    }
+    
+    // Set the values if found
+    if (thresholdValue) {
+      targetSlider.value = thresholdValue;
+      targetValueDisplay.textContent = thresholdValue;
+    } else {
+      // Default value if none found
+      targetValueDisplay.textContent = targetSlider.value;
     }
   }
   
