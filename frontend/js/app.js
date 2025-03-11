@@ -182,180 +182,83 @@ class App {
   }
   
   setupEventHandlers() {
-    // VISUALIZATION PANEL
-    const loadVisualizationBtn = document.getElementById('load-visualization-btn');
-    if (loadVisualizationBtn) {
-      loadVisualizationBtn.addEventListener('click', this.handleLoadVisualization.bind(this));
-    }
-    
-    const clearVisualizationBtn = document.getElementById('clear-visualization-btn');
-    if (clearVisualizationBtn) {
-      clearVisualizationBtn.addEventListener('click', this.handleClearVisualization.bind(this));
-    }
-    
-    // PROJECT MODAL
-    const createProjectBtn = document.getElementById('create-project-btn');
-    if (createProjectBtn) {
-      createProjectBtn.addEventListener('click', this.handleCreateProject.bind(this));
-    }
-    
-    // Select location button
-    const selectLocationBtn = document.getElementById('select-location-btn');
-    if (selectLocationBtn) {
-      selectLocationBtn.addEventListener('click', this.handleSelectLocation.bind(this));
-    }
-    
-    // CLEAR POINTS
-    const clearBtn = document.getElementById('clear-btn');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', this.handleClearPoints.bind(this));
-    }
-    
-    // TRAINING PANEL
-    const trainBtn = document.getElementById('train-btn');
-    if (trainBtn) {
-      trainBtn.addEventListener('click', this.handleTrainModel.bind(this));
-    }
-    
-    // DEPLOYMENT PANEL
-    const deployBtn = document.getElementById('deploy-btn');
-    if (deployBtn) {
-      deployBtn.addEventListener('click', this.handleDeployModel.bind(this));
-    }
-    
-    // MAP IMAGERY PANEL
-    const mapImageryForm = document.getElementById('map-imagery-form');
-    if (mapImageryForm) {
-      mapImageryForm.addEventListener('submit', this.handleMapImagery.bind(this));
-    }
-    
-    const removeImageryBtn = document.getElementById('remove-imagery-btn');
-    if (removeImageryBtn) {
-      removeImageryBtn.addEventListener('click', this.handleRemoveImagery.bind(this));
-    }
-    
-    // CONTROL PANEL IMAGERY BUTTONS
-    const controlLoadImageryBtn = document.getElementById('control-load-imagery-btn');
-    if (controlLoadImageryBtn) {
-      controlLoadImageryBtn.addEventListener('click', this.handleControlLoadImagery.bind(this));
-    }
-    
-    const controlRemoveImageryBtn = document.getElementById('control-remove-imagery-btn');
-    if (controlRemoveImageryBtn) {
-      controlRemoveImageryBtn.addEventListener('click', this.handleRemoveImagery.bind(this));
-    }
-    
-    // THRESHOLD SLIDERS
-    const clearThreshold = document.getElementById('clear-threshold');
-    if (clearThreshold) {
-      clearThreshold.addEventListener('input', (e) => {
-        document.getElementById('threshold-value').textContent = e.target.value;
-      });
-    }
-    
-    const imageryThreshold = document.getElementById('imagery-clear-threshold');
-    if (imageryThreshold) {
-      imageryThreshold.addEventListener('input', (e) => {
-        document.getElementById('imagery-threshold-value').textContent = e.target.value;
-      });
-    }
-    
-    const controlThreshold = document.getElementById('control-clear-threshold');
-    if (controlThreshold) {
-      controlThreshold.addEventListener('input', (e) => {
-        document.getElementById('control-threshold-value').textContent = e.target.value;
-      });
-    }
-    
-    // SYNC SETTINGS BETWEEN PANELS
-    // Control panel to map imagery panel sync
-    const controlStartDate = document.getElementById('control-start-date');
-    const controlEndDate = document.getElementById('control-end-date');
-    const controlCollection = document.getElementById('control-collection');
-    
-    if (controlStartDate) {
-      controlStartDate.addEventListener('change', (e) => {
-        const imageryStartDate = document.getElementById('imagery-start-date');
-        if (imageryStartDate) {
-          imageryStartDate.value = e.target.value;
-        }
-      });
-    }
-    
-    if (controlEndDate) {
-      controlEndDate.addEventListener('change', (e) => {
-        const imageryEndDate = document.getElementById('imagery-end-date');
-        if (imageryEndDate) {
-          imageryEndDate.value = e.target.value;
-        }
-      });
-    }
-    
-    if (controlCollection) {
-      controlCollection.addEventListener('change', (e) => {
-        const imageryCollection = document.getElementById('imagery-collection');
-        if (imageryCollection) {
-          imageryCollection.value = e.target.value;
-        }
-      });
-    }
-    
-    if (controlThreshold) {
-      controlThreshold.addEventListener('change', (e) => {
-        const imageryThreshold = document.getElementById('imagery-clear-threshold');
-        if (imageryThreshold) {
-          imageryThreshold.value = e.target.value;
-          document.getElementById('imagery-threshold-value').textContent = e.target.value;
-        }
-      });
-    }
-    
-    // Map imagery panel to control panel sync
-    const imageryStartDate = document.getElementById('imagery-start-date');
-    const imageryEndDate = document.getElementById('imagery-end-date');
-    const imageryCollection = document.getElementById('imagery-collection');
-    
-    if (imageryStartDate) {
-      imageryStartDate.addEventListener('change', (e) => {
-        const controlStartDate = document.getElementById('control-start-date');
-        if (controlStartDate) {
-          controlStartDate.value = e.target.value;
-        }
-      });
-    }
-    
-    if (imageryEndDate) {
-      imageryEndDate.addEventListener('change', (e) => {
-        const controlEndDate = document.getElementById('control-end-date');
-        if (controlEndDate) {
-          controlEndDate.value = e.target.value;
-        }
-      });
-    }
-    
-    if (imageryCollection) {
-      imageryCollection.addEventListener('change', (e) => {
-        const controlCollection = document.getElementById('control-collection');
-        if (controlCollection) {
-          controlCollection.value = e.target.value;
-        }
-      });
-    }
-    
-    if (imageryThreshold) {
-      imageryThreshold.addEventListener('change', (e) => {
-        const controlThreshold = document.getElementById('control-clear-threshold');
-        if (controlThreshold) {
-          controlThreshold.value = e.target.value;
-          document.getElementById('control-threshold-value').textContent = e.target.value;
-        }
-      });
-    }
-    
-    // Listen for map events
-    map.on('projectRequired', () => {
+    // Project selector button
+    document.getElementById('project-selector-btn').addEventListener('click', () => {
       panelManager.openPanel('project-modal', 'project-selector-btn');
     });
+    
+    // Create project button
+    document.getElementById('create-project-btn').addEventListener('click', this.handleCreateProject.bind(this));
+    
+    // Select location button
+    document.getElementById('select-location-btn').addEventListener('click', this.handleSelectLocation.bind(this));
+    
+    // Load visualization button
+    document.getElementById('load-visualization-btn').addEventListener('click', this.handleLoadVisualization.bind(this));
+    
+    // Clear visualization button
+    document.getElementById('clear-visualization-btn').addEventListener('click', this.handleClearVisualization.bind(this));
+    
+    // Clear points button
+    document.getElementById('clear-btn').addEventListener('click', this.handleClearPoints.bind(this));
+    
+    // Train model button
+    document.getElementById('train-model-btn').addEventListener('click', () => {
+      panelManager.openPanel('training-panel', 'train-model-btn');
+    });
+    
+    // Train button in training panel
+    document.getElementById('train-btn').addEventListener('click', this.handleTrainModel.bind(this));
+    
+    // Deploy model button
+    document.getElementById('deploy-model-btn').addEventListener('click', () => {
+      panelManager.openPanel('deployment-panel', 'deploy-model-btn');
+      // Update the deployment tiles info when the panel is opened
+      this.updateDeploymentTilesInfo();
+    });
+    
+    // Deploy button in deployment panel
+    document.getElementById('deploy-btn').addEventListener('click', this.handleDeployModel.bind(this));
+    
+    // Update deployment tiles info when deployment parameters change
+    const deploymentParams = ['deployment-model', 'deployment-start-date', 'deployment-end-date', 'pred-threshold', 'clear-threshold'];
+    deploymentParams.forEach(paramId => {
+      const element = document.getElementById(paramId);
+      if (element) {
+        element.addEventListener('change', () => {
+          // Only update if the deployment panel is open
+          if (document.getElementById('deployment-panel').classList.contains('active')) {
+            this.updateDeploymentTilesInfo();
+          }
+        });
+      }
+    });
+    
+    // Map imagery button
+    document.getElementById('map-imagery-btn').addEventListener('click', () => {
+      panelManager.openPanel('map-imagery-panel', 'map-imagery-btn');
+    });
+    
+    // Load imagery button
+    document.getElementById('load-imagery-btn').addEventListener('click', this.handleMapImagery.bind(this));
+    
+    // Remove imagery button
+    document.getElementById('remove-imagery-btn').addEventListener('click', this.handleRemoveImagery.bind(this));
+    
+    // Control panel imagery buttons
+    document.getElementById('control-load-imagery-btn').addEventListener('click', this.handleControlLoadImagery.bind(this));
+    document.getElementById('control-remove-imagery-btn').addEventListener('click', this.handleRemoveImagery.bind(this));
+    
+    // Map move end event - update deployment tiles info when map is moved
+    map.mapInstance.on('moveend', () => {
+      // Only update if the deployment panel is open
+      if (document.getElementById('deployment-panel').classList.contains('active')) {
+        this.updateDeploymentTilesInfo();
+      }
+    });
+    
+    // Socket events
+    this.connectSocketEvents();
   }
   
   initializeState() {
@@ -737,6 +640,49 @@ class App {
     // Get the current map bounds
     const bounds = map.mapInstance.getBounds();
     
+    // Get the tile count information to include in the deployment details
+    const deployBtnText = document.getElementById('deploy-btn-text');
+    const tilesInfo = deployBtnText ? deployBtnText.textContent : '';
+    
+    // Add the tile count information to the deployment details
+    const deploymentDetails = document.getElementById('deployment-details');
+    if (deploymentDetails) {
+      // Check if we have valid tile count information
+      let tilesDisplay = 'Unknown';
+      if (tilesInfo && !tilesInfo.includes('Calculating') && !tilesInfo.includes('Unable')) {
+        tilesDisplay = tilesInfo.replace('Deploy across ~', '');
+      } else {
+        // Fallback calculation
+        const west = bounds.getWest();
+        const east = bounds.getEast();
+        const north = bounds.getNorth();
+        const south = bounds.getSouth();
+        
+        // Approximate width and height in kilometers
+        const latDistance = (north - south) * 111.32;
+        const avgLat = (north + south) / 2;
+        const lonDistance = (east - west) * 111.32 * Math.cos(avgLat * Math.PI / 180);
+        
+        // Area in square kilometers
+        const areaSqKm = latDistance * lonDistance;
+        
+        // Each tile is approximately 5.12 x 5.12 km (512 pixels * 10m per pixel)
+        const tileAreaSqKm = 5.12 * 5.12;
+        
+        // Estimate number of tiles
+        const estimatedTiles = Math.ceil(areaSqKm / (tileAreaSqKm * 0.5)); // Accounting for 50% overlap
+        
+        tilesDisplay = `${estimatedTiles} tiles (${areaSqKm.toFixed(1)} km²) [estimated]`;
+      }
+      
+      deploymentDetails.innerHTML = `
+        <p><strong>Model:</strong> ${modelName}</p>
+        <p><strong>Date Range:</strong> ${startDate} to ${endDate}</p>
+        <p><strong>Thresholds:</strong> Prediction ${predThreshold}, Clear Sky ${clearThreshold}</p>
+        <p><strong>Tiles:</strong> ${tilesDisplay}</p>
+      `;
+    }
+    
     // Deploy model
     store.deployModel({
       model_name: modelName,
@@ -761,6 +707,62 @@ class App {
       notificationManager.error(`Error starting deployment: ${error.message}`);
       document.getElementById('deploy-btn').disabled = false;
     });
+  }
+  
+  // Update deployment tiles information
+  updateDeploymentTilesInfo() {
+    const currentProjectId = store.get('currentProjectId');
+    if (!currentProjectId) return;
+    
+    // Get the current map bounds
+    const bounds = map.mapInstance.getBounds();
+    
+    // Update the button text to show loading
+    const deployBtnText = document.getElementById('deploy-btn-text');
+    if (deployBtnText) {
+      deployBtnText.textContent = 'Calculating tiles...';
+    }
+    
+    // Calculate approximate dimensions using Haversine formula
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const north = bounds.getNorth();
+    const south = bounds.getSouth();
+    
+    // Approximate width and height in kilometers
+    // 111.32 km per degree of latitude at the equator
+    const latDistance = (north - south) * 111.32;
+    // Longitude distance varies with latitude
+    const avgLat = (north + south) / 2;
+    const lonDistance = (east - west) * 111.32 * Math.cos(avgLat * Math.PI / 180);
+    
+    // Area in square kilometers
+    const areaSqKm = latDistance * lonDistance;
+    
+    // Each tile is approximately 5.12 x 5.12 km (512 pixels * 10m per pixel)
+    const tileAreaSqKm = 5 * 5;
+    
+    // Estimate number of tiles
+    const estimatedTiles = Math.ceil(areaSqKm / tileAreaSqKm);
+    
+    if (deployBtnText) {
+      deployBtnText.textContent = `Deploy across ~${estimatedTiles} 5x5km tiles`;
+    }
+    
+    // Create region polygon from bounds (still needed for other operations)
+    const region = {
+      type: 'Polygon',
+      coordinates: [[
+        [bounds.getWest(), bounds.getNorth()],
+        [bounds.getEast(), bounds.getNorth()],
+        [bounds.getEast(), bounds.getSouth()],
+        [bounds.getWest(), bounds.getSouth()],
+        [bounds.getWest(), bounds.getNorth()]
+      ]]
+    };
+    
+    // Store the region for later use if needed
+    store.set('deploymentRegion', region);
   }
   
   // Load map imagery

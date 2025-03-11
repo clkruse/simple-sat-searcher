@@ -801,9 +801,9 @@ class Map extends EventEmitter {
         source: 'deployment-predictions',
         paint: {
           'line-color': '#FFCE00',
-          'line-width': 1.5,
-          // Use the confidence property directly for opacity 'line-opacity': ['get', 'confidence']
-          'line-opacity': 1.0
+          'line-width': 2,
+          'line-opacity': ['get', 'confidence'] // Use the confidence property directly for opacity
+          //'line-opacity': 1.0
         }
       });
       

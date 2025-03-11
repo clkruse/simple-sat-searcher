@@ -242,6 +242,19 @@ class ApiService {
       prediction_id: predictionId
     });
   }
+
+  /**
+   * Get deployment tiles information for a region
+   * @param {string} projectId - Project ID
+   * @param {Object} region - GeoJSON region object
+   * @returns {Promise<Object>} - JSON response with tile information
+   */
+  async getDeploymentTiles(projectId, region) {
+    return this.get('get_deployment_tiles', {
+      project_id: projectId,
+      region: JSON.stringify(region)
+    });
+  }
 }
 
 export { ApiService };

@@ -33,18 +33,21 @@ body {
     padding: 10px 0;
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
     z-index: 10;
+    overflow: visible;
 }
 
 .logo, .sidebar-item {
     position: relative;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     width: 60px;
     height: 60px;
     color: rgba(255, 255, 255, 0.8);
     cursor: pointer;
-    transition: all 0.02s ease;
+    transition: all 0.2s ease;
+    overflow: hidden;
 }
 
 /* Make sure button elements in sidebar behave like other items */
@@ -53,37 +56,21 @@ body {
     border: none;
     padding: 0;
     font: inherit;
-    color: inherit;
+    color: rgba(255, 255, 255, 0.8);
     text-align: center;
     cursor: pointer;
     width: 60px;
     height: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
 }
 
-/* Unified hover tooltip for all sidebar items */
+/* Hide the old tooltip style */
 .logo::after, .sidebar-item::after {
-    content: attr(title);
-    position: absolute;
-    left: 100%;
-    top: 50%;
-    transform: translateY(-50%);
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.2s ease;
-    z-index: 100;
-    pointer-events: none;
-    margin-left: 8px;
-}
-
-.logo:hover::after, .sidebar-item:hover::after {
-    opacity: 1;
-    visibility: visible;
+    display: none;
 }
 
 /* Unified hover and active states */
@@ -96,59 +83,34 @@ body {
     background-color: rgba(255, 255, 255, 0.2);
 }
 
-/* Hide text in sidebar items until hover */
+/* Style for the text under icons */
 .sidebar-item span {
-    position: absolute;
-    left: -9999px;
-    visibility: hidden;
+    font-size: 10px;
+    text-align: center;
+    width: 90%;
+    margin-top: 4px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.02s ease, transform 0.02s ease;
+    line-height: 1.1;
 }
 
 .sidebar-item:hover span {
-    position: static;
-    left: auto;
-    margin-left: 5px;
-    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
 }
 
-/* Sidebar button styling */
-#train-model-btn, #deploy-model-btn {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 60px;
-    height: 60px;
-    background: none;
-    border: none;
+.sidebar-item i {
+    font-size: 18px;
+    transition: transform 0.02s ease;
     color: rgba(255, 255, 255, 0.8);
-    cursor: pointer;
-    transition: all 0.2s ease;
 }
 
-#train-model-btn:hover, #deploy-model-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+.sidebar-item.active i {
+    color: #fff;
 }
 
-#train-model-btn.active, #deploy-model-btn.active {
-    background: rgba(255, 255, 255, 0.15);
-}
-
-#train-model-btn i, #deploy-model-btn i {
-    font-size: 16px;
-}
-
-#train-model-btn span, #deploy-model-btn span {
-    position: absolute;
-    left: -9999px;
-    top: -9999px;
-    display: none;
-}
-
-#train-model-btn:hover span, #deploy-model-btn:hover span {
-    display: none;
-    position: absolute;
-    left: -9999px;
-}
+/* Remove duplicate styling for train and deploy buttons - they now use the unified sidebar-item styling */
 
 /* Consistent panel styling */
 .panel, .modal {
@@ -778,13 +740,31 @@ body {
     margin: 5px 0;
     font-size: 13px;
     color: #555;
-    display: flex;
-    align-items: center;
 }
 
 .info-box i {
     color: #3a86ff;
     margin-right: 8px;
+    font-size: 14px;
+}
+
+/* Deployment tiles info specific styling */
+#deployment-tiles-info .info-box {
+    display: flex;
+    align-items: center;
+    background-color: #f0f7ff;
+    padding: 10px;
+    margin: 10px 0;
+}
+
+#deployment-tiles-info .info-box i {
+    color: #3a86ff;
+    margin-right: 10px;
+    font-size: 16px;
+}
+
+#deployment-tiles-info .info-box span {
+    color: #333;
     font-size: 14px;
 }
 
@@ -1045,12 +1025,17 @@ body {
         transition: transform 0.3s ease, opacity 0.3s ease;
     }
     
-    .sidebar-item::after, .logo::after {
-        display: none;
+    .sidebar-item span {
+        font-size: 8px;
+        margin-top: 2px;
     }
     
-    .sidebar-item span {
-        display: none;
+    .sidebar-item i {
+        font-size: 16px;
+    }
+    
+    .sidebar-item:hover i {
+        transform: translateY(-2px);
     }
 }
 

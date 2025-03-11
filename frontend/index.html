@@ -16,19 +16,24 @@
     <div class="sidebar">
         <div class="sidebar-item active" id="project-selector-btn" title="Projects">
             <i class="fas fa-folder"></i>
+            <span>Projects</span>
         </div>
         <div class="sidebar-item" id="point-tool-btn" title="Label Points">
             <i class="fas fa-crosshairs"></i>
+            <span>Label Points</span>
         </div>
         <div class="sidebar-item" id="clear-btn" title="Clear Points">
             <i class="fas fa-trash"></i>
+            <span>Clear Points</span>
         </div>
         <div class="sidebar-item" id="visualize-data-btn" title="Visualize Data">
             <i class="fas fa-image"></i>
+            <span>Visualize Data</span>
         </div>
         
         <div class="sidebar-item" id="map-imagery-btn" title="Load Map Imagery">
             <i class="fas fa-globe"></i>
+            <span>Load Map Imagery</span>
         </div>
         <button id="train-model-btn" class="sidebar-item" title="Train Model">
             <i class="fas fa-brain"></i>
@@ -343,7 +348,7 @@
                 <div class="form-group">
                     <button id="deploy-btn" class="primary-btn">
                         <i class="fas fa-play"></i>
-                        Deploy Model
+                        <span id="deploy-btn-text">Deploy Model</span>
                     </button>
                 </div>
                 
@@ -395,7 +400,7 @@
                 </div>
                 
                 <div class="button-group">
-                    <button type="submit" class="primary-btn">Load Imagery</button>
+                    <button type="submit" class="primary-btn" id="load-imagery-btn">Load Imagery</button>
                     <button type="button" class="secondary-btn" id="remove-imagery-btn">Remove Imagery</button>
                 </div>
                 
