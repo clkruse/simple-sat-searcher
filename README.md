@@ -1,6 +1,11 @@
 # Simple Satellite Imagery Searcher
 
-A comprehensive tool for satellite imagery processing, analysis, and model development. This application allows users to label points on satellite imagery, extract data from those points, train machine learning models, and deploy those models to search for similar features in new areas.
+An overview can be found at https://github.com/clkruse/simple-sat-searcher
+
+This is a tool that makes it easy to train models that find things in satellite imagery. It combines the iterative process of labeling points, exporting data, training a model, deploying the model, and evaluating results into one tight feedback loop. All processing happens locally, with data pulled from Google earth engine.
+
+Note: the code here has _heavily_ relied on AI-based code-gen tools! It's been great! But that does mean that you may find some indefensible decisions or practices.
+
 
 ## Features
 
